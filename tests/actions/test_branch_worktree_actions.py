@@ -73,7 +73,7 @@ async def test_favorite_and_compare(env):
         "refs/heads/fav" in R.Favorites(session.private_dir(shared=True) / "favorites.json").load()
     )
     await d.dispatch_id("branch.compare", await bctx(session, "fav"))
-    assert ui.opened[-1] == ("log", {"branch": "HEAD...fav"})
+    assert ui.opened[-1] == ("compare", {"compare": "fav"})
 
 
 async def test_push_dialog_and_fetch(env, tmp_path):

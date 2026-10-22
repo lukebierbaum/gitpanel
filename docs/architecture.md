@@ -247,8 +247,15 @@ class Ui(Protocol):
         self, title: str, *, default: str = "", placeholder: str = "", multiline: bool = False
     ) -> str | None: ...
     async def choose(self, title: str, options: Sequence[tuple[str, str]]) -> str | None: ...
-    async def form(self, title: str, fields: Sequence[Field], *, body: str = "",
-                   ok_label: str = "OK", danger: bool = False) -> dict[str, Any] | None: ...
+    async def form(
+        self,
+        title: str,
+        fields: Sequence[Field],
+        *,
+        body: str = "",
+        ok_label: str = "OK",
+        danger: bool = False,
+    ) -> dict[str, Any] | None: ...
     # Field(name, label, kind="text"|"bool"|"choice", default, options, placeholder)
     def notify(
         self, message: str, *, severity: Literal["information", "warning", "error"] = "information"
@@ -492,7 +499,7 @@ class LogRow:
     markers: tuple[Marker, ...]
 ```
 
-`LogView` holds filters (branches, author, since/until, paths, text/regex, sha) and pages commits in chunks of 500 via `git.stream("log", "-z", "--topo-order", fmt, …)`. Lanes are computed incrementally per page (state carried between pages). Markers are requested only for visible + prefetch rows and cached until a provider's `invalidated_by` event fires. Built-in providers: refs, worktree HEADs, already-picked (`--cherry-mark` vs current branch, M4), bisect (M10), search hits.
+`LogView` holds filters (branches, author, since/until, paths, text/regex, sha) and pages commits in chunks of 500 via `git.stream("log", "-z", "--topo-order", fmt, …)`. Lanes are computed incrementally per page (state carried between pages). Markers are requested only for visible + prefetch rows and cached until a provider's `invalidated_by` event fires. Built-in providers: `RefMarkers`, `WorktreeMarkers`, `PickedMarkers` (patch-id equivalence within the last 2000 commits of HEAD, plus `(cherry picked from commit …)` trailers; cached per HEAD and candidate set); bisect (M10) and search hits later.
 
 ## 11. Testing
 

@@ -157,7 +157,7 @@ async def _merge(env: ActionEnv) -> None:
 
 async def _compare(env: ActionEnv) -> None:
     ref = _ref(env.ctx)
-    env.ui.open_screen("log", branch=f"HEAD...{ref.short}")
+    env.ui.open_screen("compare", compare=ref.short)
     _close(env)
 
 

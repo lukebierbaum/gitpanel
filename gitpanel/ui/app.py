@@ -32,13 +32,14 @@ from .dialogs import (
 from .palette import RegistryCommands
 from .screens.branches import BranchesPopup
 from .screens.commit import CommitView
+from .screens.compare import CompareView
 from .screens.log import LogView
 from .screens.worktrees import WorktreesView
 from .theme import DEFAULT_THEME, HULK_GREEN, THEMES
 from .widgets.key_hints import KeyHints, pretty_key
 from .widgets.operation_banner import OperationBanner
 
-View = CommitView | LogView | WorktreesView
+View = CommitView | LogView | WorktreesView | CompareView
 
 
 class Header(Static):
@@ -56,7 +57,7 @@ class GitPanelApp(App[None]):
     #toolwindows { height: 1; background: $panel; }
     #toolwindows Tab { padding: 0 2; }
     """
-    VIEWS = ("commit", "log", "worktrees")
+    VIEWS = ("commit", "log", "worktrees", "compare")
 
     def __init__(self, path: Path | str = ".", *, registry: Registry | None = None) -> None:
         super().__init__()
@@ -78,12 +79,14 @@ class GitPanelApp(App[None]):
             Tab("Commit  ⌥0", id="tab-commit"),
             Tab("Log  ⌥9", id="tab-log"),
             Tab("Worktrees  ⌥8", id="tab-worktrees"),
+            Tab("Compare", id="tab-compare"),
             id="toolwindows",
         )
         with ContentSwitcher(initial="commit-view", id="views"):
             yield CommitView()
             yield LogView()
             yield WorktreesView()
+            yield CompareView()
         yield KeyHints(id="hints")
 
     async def on_mount(self) -> None:
@@ -104,7 +107,12 @@ class GitPanelApp(App[None]):
         return self.query_one(f"#{current}")  # type: ignore[return-value]
 
     def _views(self) -> list[View]:
-        return [self.query_one(CommitView), self.query_one(LogView), self.query_one(WorktreesView)]
+        return [
+            self.query_one(CommitView),
+            self.query_one(LogView),
+            self.query_one(WorktreesView),
+            self.query_one(CompareView),
+        ]
 
     def _context_screen(self) -> Any | None:
         """The screen whose selection actions apply to: a tool popup or the base screen."""

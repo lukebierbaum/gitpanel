@@ -84,8 +84,34 @@ class WorktreeMarkers:
         return out
 
 
+class PickedMarkers:
+    """Commits from other branches whose change the current branch already has."""
+
+    name = "picked"
+    invalidated_by = ChangeKind.REFS | ChangeKind.HEAD
+
+    def __init__(self) -> None:
+        self._cache: dict[tuple[str, frozenset[str]], set[str]] = {}
+
+    async def markers(
+        self, session: RepoSession, shas: Sequence[str]
+    ) -> Mapping[str, Sequence[Marker]]:
+        from .cherry_pick import picked_shas
+
+        head = await session.git.try_rev_parse("HEAD")
+        if not head:
+            return {}
+        key = (head, frozenset(shas))
+        if key not in self._cache:
+            self._cache = {key: await picked_shas(session.git, list(shas), head)}
+        return {
+            sha: [Marker("picked", "✓ picked", "picked", dims_row=True, order=90)]
+            for sha in self._cache[key]
+        }
+
+
 def default_providers() -> list[MarkerProvider]:
-    return [RefMarkers(), WorktreeMarkers()]
+    return [RefMarkers(), WorktreeMarkers(), PickedMarkers()]
 
 
 async def collect(

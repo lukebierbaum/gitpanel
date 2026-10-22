@@ -11,7 +11,7 @@ from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
-from ...actions.context import FileRef, Scope, SelectionContext
+from ...actions.context import FileRef, PatchSelection, Scope, SelectionContext
 from ...git import patch as P
 from ...git.graph import GraphBuilder
 from ...git.log import LogFilter, commit_details, containing_branches, load_page
@@ -235,9 +235,24 @@ class LogView(Vertical):
     def context(self, base: SelectionContext) -> SelectionContext:
         focused = self.screen.focused
         table = self.query_one(CommitTable)
-        kwargs: dict[str, Any] = {"screen": "log", "commits": tuple(table.selected_commits())}
+        picked = tuple(
+            r.commit.sha for r in table.rows if any(m.kind == "picked" for m in r.markers)
+        )
+        kwargs: dict[str, Any] = {
+            "screen": "log",
+            "commits": tuple(table.selected_commits()),
+            "form": {"picked": picked},
+        }
+        diff_view = self.query_one(DiffView)
         if focused is table and table.rows:
             kwargs["focus"] = Scope.COMMIT
+        elif focused is diff_view and diff_view.diff is not None and diff_view.source:
+            sel = diff_view.selection()
+            if sel is not None:
+                kwargs.update(
+                    focus=Scope.HUNK,
+                    patch=PatchSelection(diff_view.source, (diff_view.diff,), sel),
+                )
         elif focused is self.query_one("#log-files", OptionList) and self._detail_sha:
             files = self.query_one("#log-files", OptionList)
             if files.highlighted is not None:
