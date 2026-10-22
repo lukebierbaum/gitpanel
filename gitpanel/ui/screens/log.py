@@ -9,6 +9,7 @@ from textual import events, on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.timer import Timer
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
@@ -70,6 +71,8 @@ class LogView(Vertical):
         self._diffs: list[P.FileDiff] = []
         self._detail_sha: str | None = None  # commit the details pane is (being) loaded for
         self._shown_sha: str | None = None  # commit whose details finished rendering
+        self._pick_timer: Timer | None = None
+        self._contains: dict[str, tuple[list[str], list[str]]] = {}  # sha → (all, remote)
 
     @property
     def gp(self) -> GitPanelApp:
@@ -133,6 +136,7 @@ class LogView(Vertical):
         if session is None:
             return
         git = session.git
+        self._contains.clear()  # refs may have moved (this runs on repository changes)
         branches = await R.branches(git)
         self.query_one("#log-legend").set_class(any(b.is_remote for b in branches), "-shown")
         self.query_one(BranchPanel).populate(
@@ -146,7 +150,19 @@ class LogView(Vertical):
     @on(BranchPanel.Changed)
     def _branches_picked(self, event: BranchPanel.Changed) -> None:
         self.query_one("#f-branch", Input).value = " ".join(event.filters)
+        # arrowing through the list fires on every row: wait until it settles
+        if self._pick_timer is not None:
+            self._pick_timer.stop()
+        self._pick_timer = self.set_timer(0.15, self._picked_settled)
+
+    def _picked_settled(self) -> None:
+        self._pick_timer = None
         self.reload_log()
+
+    @property
+    def pending(self) -> bool:
+        """A branch-panel change is waiting for its debounce to load the log."""
+        return self._pick_timer is not None
 
     def action_toggle_branches(self) -> None:
         panel = self.query_one(BranchPanel)
@@ -171,10 +187,11 @@ class LogView(Vertical):
             commits = []
         rows = [LogRow(c, g) for c, g in zip(commits, self.builder.add_all(commits), strict=True)]
         self._loaded = len(commits)
-        markers = await collect(self.providers, session, [c.sha for c in commits])
+        markers = await collect(self.providers, session, [c.sha for c in commits], slow=False)
         for r in rows:
             r.markers = markers.get(r.commit.sha, [])
         table.set_rows(rows, keep_sha=keep, has_more=len(commits) == PAGE)
+        self.fill_slow_markers(rows)
         self._detail_sha = None
         self._shown_sha = None
         self.show_details()
@@ -192,10 +209,32 @@ class LogView(Vertical):
         commits = await load_page(session.git, self.filter, self._loaded, PAGE)
         self._loaded += len(commits)
         rows = [LogRow(c, g) for c, g in zip(commits, self.builder.add_all(commits), strict=True)]
-        markers = await collect(self.providers, session, [c.sha for c in commits])
+        markers = await collect(self.providers, session, [c.sha for c in commits], slow=False)
         for r in rows:
             r.markers = markers.get(r.commit.sha, [])
         table.append_rows(rows, has_more=len(commits) == PAGE)
+        self.fill_slow_markers(rows, exclusive=False)
+
+    def fill_slow_markers(self, rows: list[LogRow], *, exclusive: bool = True) -> None:
+        """Rows are on screen already; add pushed/picked markers once they're computed."""
+        self.run_worker(self._slow_markers(rows), group="log-slow-markers", exclusive=exclusive)
+
+    async def _slow_markers(self, rows: list[LogRow]) -> None:
+        session = self.gp.session
+        if session is None or not rows:
+            return
+        extra = await collect(self.providers, session, [r.commit.sha for r in rows], slow=True)
+        if not extra:
+            return
+        for r in rows:
+            more = extra.get(r.commit.sha)
+            if more:
+                r.markers = sorted([*r.markers, *more], key=lambda m: (m.order, m.label))
+        table = self.query_one(CommitTable)
+        table.refresh()
+        if any(r in table.selected_rows() for r in rows):
+            self._shown_sha = None  # details may need the new markers
+            self.show_details()
 
     # -- details -----------------------------------------------------------------------
     @on(CommitTable.CursorChanged)
@@ -262,8 +301,12 @@ class LogView(Vertical):
             diff_view.set_diff(P.CommitDiff(sha), self._diffs[0])
         else:
             diff_view.set_diff(None, None, message="No file changes (merge or empty commit)")
-        branches = await containing_branches(git, sha)
-        remote_has = await containing_remote_branches(git, sha)
+        if sha not in self._contains:
+            self._contains[sha] = (
+                await containing_branches(git, sha),
+                await containing_remote_branches(git, sha),
+            )
+        branches, remote_has = self._contains[sha]
         if self._detail_sha != sha:
             return
         if await has_remotes(git):

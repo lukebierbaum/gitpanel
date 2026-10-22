@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from .refs import head_ref, list_refs
+from .runner import Git
 from .session import ChangeKind, RepoSession
 
 
@@ -24,6 +25,7 @@ class Marker:
 class MarkerProvider(Protocol):
     name: str
     invalidated_by: ChangeKind
+    slow: bool  # True: the Log shows rows first and fills these markers in afterwards
 
     async def markers(
         self, session: RepoSession, shas: Sequence[str]
@@ -34,6 +36,7 @@ class RefMarkers:
     """HEAD, local branches, remote branches and tags."""
 
     name = "refs"
+    slow = False
     invalidated_by = ChangeKind.REFS | ChangeKind.HEAD
 
     async def markers(
@@ -71,6 +74,7 @@ class WorktreeMarkers:
     """Commits checked out in *other* worktrees of this repository."""
 
     name = "worktrees"
+    slow = False
     invalidated_by = ChangeKind.WORKTREES | ChangeKind.REFS | ChangeKind.HEAD
 
     async def markers(
@@ -89,6 +93,7 @@ class PickedMarkers:
     """Commits from other branches whose change the current branch already has."""
 
     name = "picked"
+    slow = True
     invalidated_by = ChangeKind.REFS | ChangeKind.HEAD
 
     def __init__(self) -> None:
@@ -115,6 +120,7 @@ class BisectMarkers:
     """good / bad / skipped / currently-testing commits during a bisect."""
 
     name = "bisect"
+    slow = False
     invalidated_by = ChangeKind.REFS | ChangeKind.HEAD | ChangeKind.OPERATION
 
     async def markers(
@@ -144,44 +150,56 @@ UNPUSHED = "#E3B23C"  # amber: on a local branch, on no remote
 INCOMING = "#A66BE0"  # purple: on a remote branch, on no local branch
 
 
+async def refs_state(git: Git) -> str:
+    """Cheap fingerprint of HEAD + all branch/remote/tag tips (changes when any ref moves)."""
+    res = await git.run(
+        "for-each-ref", "--format=%(objectname) %(refname)", read_only=True, check=False
+    )
+    return f"{await git.try_rev_parse('HEAD')}\n{res.text}"
+
+
 class SyncMarkers:
     """Which commits exist only locally (not pushed) or only on a remote (not pulled)."""
 
     name = "sync"
+    slow = True
     invalidated_by = ChangeKind.REFS | ChangeKind.HEAD
     LIMIT = 20000
+
+    def __init__(self) -> None:
+        # (refs fingerprint, local-only shas, remote-only shas); recomputed when refs move
+        self._cache: tuple[str, set[str], set[str]] | None = None
 
     async def markers(
         self, session: RepoSession, shas: Sequence[str]
     ) -> Mapping[str, Sequence[Marker]]:
         git = session.git
-        remotes = await git.run(
-            "for-each-ref", "--count=1", "--format=x", "refs/remotes", read_only=True
-        )
-        if not remotes.text.strip():
-            return {}  # no remotes: everything is local, labels would just be noise
-        local = await git.run(
-            "rev-list",
-            f"--max-count={self.LIMIT}",
-            "HEAD",
-            "--branches",
-            "--not",
-            "--remotes",
-            check=False,
-            read_only=True,
-        )
-        incoming = await git.run(
-            "rev-list",
-            f"--max-count={self.LIMIT}",
-            "--remotes",
-            "--not",
-            "HEAD",
-            "--branches",
-            check=False,
-            read_only=True,
-        )
-        local_only = set(local.text.split())
-        remote_only = set(incoming.text.split())
+        state = await refs_state(git)
+        if "refs/remotes/" not in state:
+            return {}  # no remotes: everything is local, colours would just be noise
+        if self._cache is None or self._cache[0] != state:
+            local = await git.run(
+                "rev-list",
+                f"--max-count={self.LIMIT}",
+                "HEAD",
+                "--branches",
+                "--not",
+                "--remotes",
+                check=False,
+                read_only=True,
+            )
+            incoming = await git.run(
+                "rev-list",
+                f"--max-count={self.LIMIT}",
+                "--remotes",
+                "--not",
+                "HEAD",
+                "--branches",
+                check=False,
+                read_only=True,
+            )
+            self._cache = (state, set(local.text.split()), set(incoming.text.split()))
+        _, local_only, remote_only = self._cache
         out: dict[str, list[Marker]] = {}
         for sha in shas:
             if sha in local_only:
@@ -196,8 +214,14 @@ def default_providers() -> list[MarkerProvider]:
 
 
 async def collect(
-    providers: Sequence[MarkerProvider], session: RepoSession, shas: Sequence[str]
+    providers: Sequence[MarkerProvider],
+    session: RepoSession,
+    shas: Sequence[str],
+    *,
+    slow: bool | None = None,
 ) -> dict[str, list[Marker]]:
+    """Markers from `providers` (only the fast or slow ones when `slow` is given)."""
+    providers = [p for p in providers if slow is None or getattr(p, "slow", False) == slow]
     merged: dict[str, list[Marker]] = defaultdict(list)
     for p in providers:
         for sha, ms in (await p.markers(session, shas)).items():

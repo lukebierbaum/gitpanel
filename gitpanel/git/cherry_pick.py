@@ -81,40 +81,90 @@ async def cherry_pick(
 # --- already-picked detection ----------------------------------------------------------
 
 
-async def _patch_ids(git: Git, rev_args: Sequence[str]) -> dict[str, str]:
-    """commit sha → stable patch id for the given `git log` arguments (merges skipped)."""
-    log = await git.run("log", "--no-merges", "-p", "--format=commit %H", *rev_args, read_only=True)
-    if not log.stdout.strip():
-        return {}
-    res = await git.run("patch-id", "--stable", input=log.stdout, read_only=True)
-    out: dict[str, str] = {}
-    for line in res.text.splitlines():
-        parts = line.split()
-        if len(parts) == 2:
-            out[parts[1]] = parts[0]
-    return out
+# (head sha, tip sha) → shas on tip's side already applied to head. Commits are immutable,
+# so entries never go stale; the dict is bounded to keep memory small.
+_PICKED_CACHE: dict[tuple[str, str], frozenset[str]] = {}
+_PICKED_CACHE_MAX = 512
+
+
+async def _picked_for_tip(git: Git, head: str, tip: str, max_divergence: int) -> frozenset[str]:
+    """Commits in head...tip on tip's side whose change head already has.
+
+    Uses git's own `--cherry-mark` over the symmetric difference only (bounded by
+    how far the two diverged) plus `(cherry picked from commit …)` trailers.
+    """
+    key = (head, tip)
+    if key in _PICKED_CACHE:
+        return _PICKED_CACHE[key]
+    behind = await git.run("rev-list", "--count", f"{tip}..{head}", read_only=True, check=False)
+    ahead = await git.run("rev-list", "--count", f"{head}..{tip}", read_only=True, check=False)
+    n_head = int(behind.text.strip() or 0) if behind.ok else 0
+    n_tip = int(ahead.text.strip() or 0) if ahead.ok else 0
+    picked: set[str] = set()
+    tip_side: list[str] = []
+    if n_tip and n_head + n_tip <= max_divergence:
+        res = await git.run(
+            "rev-list",
+            "--cherry-mark",
+            "--right-only",
+            "--no-merges",
+            f"{head}...{tip}",
+            read_only=True,
+            check=False,
+        )
+        for line in res.text.splitlines():
+            mark, sha = line[:1], line[1:].strip()
+            tip_side.append(sha)
+            if mark == "=":
+                picked.add(sha)
+    elif n_tip:
+        res = await git.run(
+            "rev-list", "--no-merges", f"{head}..{tip}", read_only=True, check=False
+        )
+        tip_side = res.text.split()
+    if tip_side and n_head:
+        bodies = await git.run(
+            "log",
+            f"--max-count={max_divergence}",
+            "--format=%B%x00",
+            f"{tip}..{head}",
+            read_only=True,
+            check=False,
+        )
+        trailers = set(TRAILER.findall(bodies.text))
+        if trailers:
+            picked |= {c for c in tip_side if any(c.startswith(t) for t in trailers)}
+    result = frozenset(picked)
+    if len(_PICKED_CACHE) >= _PICKED_CACHE_MAX:
+        _PICKED_CACHE.pop(next(iter(_PICKED_CACHE)))
+    _PICKED_CACHE[key] = result
+    return result
 
 
 async def picked_shas(
-    git: Git, candidates: Sequence[str], head: str = "HEAD", depth: int = 2000
+    git: Git, candidates: Sequence[str], head: str = "HEAD", max_divergence: int = 5000
 ) -> set[str]:
-    """Commits among `candidates` (not on `head`) whose change `head` already contains."""
-    if not candidates or not await git.try_rev_parse(head):
+    """Commits among `candidates` (not on `head`) whose change `head` already contains.
+
+    Only the commits where `head` and each candidate branch tip diverge are compared,
+    so the cost depends on how far branches drifted apart, not on history length.
+    """
+    head_sha = await git.try_rev_parse(head) if candidates else None
+    if not head_sha:
         return set()
-    on_head = set(
-        (await git.run("rev-list", f"--max-count={depth * 2}", head, read_only=True)).text.split()
-    )
-    foreign = [c for c in candidates if c not in on_head]
+    res = await git.run("rev-list", *candidates, "--not", head_sha, read_only=True, check=False)
+    foreign = set(res.text.split()) & set(candidates)
     if not foreign:
         return set()
-    head_ids = await _patch_ids(git, [f"--max-count={depth}", head])
-    head_pids = set(head_ids.values())
-    bodies = await git.run("log", f"--max-count={depth}", "--format=%B%x00", head, read_only=True)
-    trailers = set(TRAILER.findall(bodies.text))
-    cand_ids = await _patch_ids(git, ["--no-walk", *foreign])
-    picked = {sha for sha, pid in cand_ids.items() if pid in head_pids}
-    picked |= {c for c in foreign if any(c.startswith(t) or t.startswith(c) for t in trailers)}
-    return picked
+    parents = await git.run(
+        "rev-list", "--no-walk=unsorted", "--parents", *foreign, read_only=True, check=False
+    )
+    has_child = {p for line in parents.text.splitlines() for p in line.split()[1:]}
+    tips = [c for c in candidates if c in foreign and c not in has_child][:50]
+    picked: set[str] = set()
+    for tip in tips:
+        picked |= await _picked_for_tip(git, head_sha, tip, max_divergence)
+    return picked & foreign
 
 
 @dataclass

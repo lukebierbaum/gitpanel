@@ -15,7 +15,8 @@ async def settle(pilot, app) -> None:
         await pilot.pause(0.01)
         if isinstance(app.screen, ModalScreen):
             return
-        if all(w.is_finished for w in app.workers):
+        pending = any(getattr(v, "pending", False) for v in app.query("LogView"))
+        if not pending and all(w.is_finished for w in app.workers):
             await pilot.pause()
             if all(w.is_finished for w in app.workers):
                 return

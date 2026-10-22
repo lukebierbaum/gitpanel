@@ -485,6 +485,7 @@ class Marker:
 class MarkerProvider(Protocol):
     name: str
     invalidated_by: ChangeKind
+    slow: bool  # Log shows rows first, then fills slow markers in (picked, sync)
 
     async def markers(
         self, session: RepoSession, shas: Sequence[str], view: LogView
@@ -506,7 +507,7 @@ class LogRow:
     markers: tuple[Marker, ...]
 ```
 
-`LogView` holds filters (branches, author, since/until, paths, text/regex, sha) and pages commits in chunks of 500 via `git.stream("log", "-z", "--topo-order", fmt, …)`. Lanes are computed incrementally per page (state carried between pages). Markers are requested only for visible + prefetch rows and cached until a provider's `invalidated_by` event fires. Built-in providers: `RefMarkers`, `WorktreeMarkers`, `PickedMarkers` (patch-id equivalence within the last 2000 commits of HEAD, plus `(cherry picked from commit …)` trailers; cached per HEAD and candidate set); bisect (M10) and search hits later.
+`LogView` holds filters (branches, author, since/until, paths, text/regex, sha) and pages commits in chunks of 500 via `git.stream("log", "-z", "--topo-order", fmt, …)`. Lanes are computed incrementally per page (state carried between pages). Markers are requested only for visible + prefetch rows and cached until a provider's `invalidated_by` event fires. Built-in providers: `RefMarkers`, `WorktreeMarkers`, `PickedMarkers` (`rev-list --cherry-mark` over only the commits where HEAD and each branch tip diverge, plus `(cherry picked from commit …)` trailers; cached per (HEAD, tip)); bisect (M10) and search hits later.
 
 ## 11. Testing
 
