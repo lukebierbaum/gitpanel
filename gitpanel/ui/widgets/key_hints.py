@@ -34,11 +34,18 @@ class KeyHints(Static):
     """
 
     def show_for(
-        self, registry: Registry, ctx: SelectionContext, extra: list[tuple[str, str]]
+        self,
+        registry: Registry,
+        ctx: SelectionContext,
+        extra: list[tuple[str, str]],
+        *,
+        screen_only: bool = False,
     ) -> None:
         t = Text(no_wrap=True, overflow="ellipsis")
         items: list[tuple[str, str]] = []
         for action in registry.available(ctx):
+            if screen_only and action.screens is None:
+                continue
             key = registry.key_for(action)
             if key:
                 items.append((key, action.label))

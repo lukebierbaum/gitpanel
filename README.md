@@ -2,7 +2,7 @@
 
 A PyCharm-style Git client for the terminal: commit tool window with hunk/line staging, log with branch graph, branches popup, worktrees, cherry-picking between branches, 3-pane conflict resolver, history/annotate, shelves, interactive rebase, and undo.
 
-**Status:** milestones 1–2 of 10 done (commit tool window, log with graph). See [docs/ROADMAP.md](docs/ROADMAP.md).
+**Status:** milestones 1–3 of 10 done (commit tool window, log with graph, branches/worktrees/remotes). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Try it
 Requires [pixi](https://pixi.sh).
@@ -36,6 +36,14 @@ pixi run start /tmp/gp-demo     # open it
 | `y` | copy hash |
 | `ctrl+p` | everything else: checkout revision, reset to here, revert… |
 | `s` (in a diff) | side-by-side diff |
+
+### Branches, worktrees, remotes
+| Key | Action |
+|---|---|
+| `b` | Branches popup — type to search; `enter` checkout, `ctrl+n` new, `ctrl+k` push, `f2` rename, `ctrl+d` delete, `ctrl+f` favourite, `ctrl+w` new worktree, `alt+enter` all actions |
+| `w` / `alt+8` | Worktrees window — `enter` switch, `n` new, `d` remove, `m` move, `l` lock, `s` shell, `y` copy path |
+| `F` / `ctrl+t` / `P` | fetch / update project (pull, merge or rebase) / push dialog |
+| `alt+enter` | actions for the current selection, anywhere |
 
 Colour scheme: **Hulk** (purple + gamma green) by default; `hulk-light` is available from the palette's theme switcher.
 

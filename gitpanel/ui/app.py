@@ -10,13 +10,12 @@ from typing import Any
 from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
-from textual.screen import ModalScreen
 from textual.widgets import ContentSwitcher, Static, Tab, Tabs
 
 from ..actions.builtin import register_builtin
 from ..actions.context import SelectionContext
 from ..actions.registry import Action, Dispatcher, Registry
-from ..actions.ui_protocol import Severity
+from ..actions.ui_protocol import Field, Severity
 from ..git.operations import OperationState, detect
 from ..git.runner import GitError
 from ..git.session import ChangeKind, RepoSession
@@ -25,16 +24,21 @@ from .dialogs import (
     ChooseDialog,
     ConfirmDialog,
     ErrorDialog,
+    FormDialog,
     OutputDialog,
     PromptDialog,
     TextDialog,
 )
 from .palette import RegistryCommands
+from .screens.branches import BranchesPopup
 from .screens.commit import CommitView
 from .screens.log import LogView
+from .screens.worktrees import WorktreesView
 from .theme import DEFAULT_THEME, HULK_GREEN, THEMES
-from .widgets.key_hints import KeyHints
+from .widgets.key_hints import KeyHints, pretty_key
 from .widgets.operation_banner import OperationBanner
+
+View = CommitView | LogView | WorktreesView
 
 
 class Header(Static):
@@ -52,7 +56,7 @@ class GitPanelApp(App[None]):
     #toolwindows { height: 1; background: $panel; }
     #toolwindows Tab { padding: 0 2; }
     """
-    VIEWS = ("commit", "log")
+    VIEWS = ("commit", "log", "worktrees")
 
     def __init__(self, path: Path | str = ".", *, registry: Registry | None = None) -> None:
         super().__init__()
@@ -71,11 +75,15 @@ class GitPanelApp(App[None]):
         yield Header("gitpanel", id="header")
         yield OperationBanner(id="banner")
         yield Tabs(
-            Tab("Commit  ⌥0", id="tab-commit"), Tab("Log  ⌥9", id="tab-log"), id="toolwindows"
+            Tab("Commit  ⌥0", id="tab-commit"),
+            Tab("Log  ⌥9", id="tab-log"),
+            Tab("Worktrees  ⌥8", id="tab-worktrees"),
+            id="toolwindows",
         )
         with ContentSwitcher(initial="commit-view", id="views"):
             yield CommitView()
             yield LogView()
+            yield WorktreesView()
         yield KeyHints(id="hints")
 
     async def on_mount(self) -> None:
@@ -85,17 +93,27 @@ class GitPanelApp(App[None]):
             self.startup_error = f"{self.path}: {e}"
             self.exit(return_code=2, message=self.startup_error)
             return
+        self.query_one(Tabs).can_focus = False
         self.session.subscribe(self._on_change)
         self.session.start_watching()
         await self._refresh_all(ChangeKind.ALL)
 
     @property
-    def view(self) -> CommitView | LogView:
-        current = self.query_one(ContentSwitcher).current
-        return self.query_one(LogView) if current == "log-view" else self.query_one(CommitView)
+    def view(self) -> View:
+        current = self.query_one(ContentSwitcher).current or "commit-view"
+        return self.query_one(f"#{current}")  # type: ignore[return-value]
 
-    def _views(self) -> list[CommitView | LogView]:
-        return [self.query_one(CommitView), self.query_one(LogView)]
+    def _views(self) -> list[View]:
+        return [self.query_one(CommitView), self.query_one(LogView), self.query_one(WorktreesView)]
+
+    def _context_screen(self) -> Any | None:
+        """The screen whose selection actions apply to: a tool popup or the base screen."""
+        screen = self.screen
+        if hasattr(screen, "context"):
+            return screen
+        if screen is self.screen_stack[0]:
+            return self.view
+        return None
 
     # -- repo changes ---------------------------------------------------------------
     def _on_change(self, kinds: ChangeKind) -> None:
@@ -117,6 +135,11 @@ class GitPanelApp(App[None]):
             st.branch.branch, st.branch.head, st.branch.ahead, st.branch.behind, st.branch.upstream
         )
         self.view.reload()
+        for v in self._views():
+            if v is not self.view:
+                v.stale = True
+        if hasattr(self.screen, "reload"):
+            self.screen.reload()
         self.refresh_hints()
 
     def _update_header(
@@ -145,25 +168,29 @@ class GitPanelApp(App[None]):
     def context(self) -> SelectionContext:
         assert self.session is not None
         base = SelectionContext(self.session, operation=self.operation)
-        return self.view.context(base)
+        provider = self._context_screen() or self.view
+        return provider.context(base)
 
     def refresh_hints(self) -> None:
         if self.session is None:
             return
+        provider = self._context_screen()
+        if provider is not None and hasattr(provider, "show_hints"):
+            provider.show_hints(self.registry, self.context())
+            return
         try:
-            hints = self.query_one(KeyHints)
+            hints = self.screen_stack[0].query_one("#hints", KeyHints)
         except Exception:
             return
-        extras = self.view.hint_extras() + [("^p", "commands")]
-        hints.show_for(self.registry, self.context(), extras)
+        extras = self.view.hint_extras() + [("⌥⏎", "actions"), ("^p", "commands")]
+        base = SelectionContext(self.session, operation=self.operation)
+        hints.show_for(self.registry, self.view.context(base), extras)
 
     def on_descendant_focus(self, event: events.DescendantFocus) -> None:
         self.refresh_hints()
 
     def on_key(self, event: events.Key) -> None:
-        if self.session is None or isinstance(self.screen, ModalScreen):
-            return
-        if self.screen is not self.screen_stack[0]:
+        if self.session is None or self._context_screen() is None:
             return
         ctx = self.context()
         action = self.registry.for_key(ctx, event.key)
@@ -205,6 +232,19 @@ class GitPanelApp(App[None]):
             PromptDialog(title, default, placeholder), wait_for_dismiss=True
         )
 
+    async def form(
+        self,
+        title: str,
+        fields: Sequence[Field],
+        *,
+        body: str = "",
+        ok_label: str = "OK",
+        danger: bool = False,
+    ) -> dict[str, Any] | None:
+        return await self.push_screen(
+            FormDialog(title, fields, body, ok_label, danger), wait_for_dismiss=True
+        )
+
     async def choose(self, title: str, options: Sequence[tuple[str, str]]) -> str | None:
         return await self.push_screen(ChooseDialog(title, options), wait_for_dismiss=True)
 
@@ -230,12 +270,22 @@ class GitPanelApp(App[None]):
             return subprocess.run(list(argv), cwd=cwd).returncode
 
     def open_screen(self, name: str, **kwargs: Any) -> None:
+        if name == "branches":
+            if not isinstance(self.screen, BranchesPopup):
+                self.push_screen(BranchesPopup())
+            return
         if name not in self.VIEWS:
             return
+        if isinstance(self.screen, BranchesPopup):
+            self.screen.dismiss()
         switcher = self.query_one(ContentSwitcher)
         if switcher.current == f"{name}-view":
+            if kwargs:
+                self.view.handle_event("open", kwargs)
             return
         switcher.current = f"{name}-view"
+        if kwargs:
+            self.view.handle_event("open", kwargs)
         self.query_one(Tabs).active = f"tab-{name}"
         view = self.view
         if getattr(view, "stale", True):
@@ -256,4 +306,36 @@ class GitPanelApp(App[None]):
         if event == "clipboard":
             self.copy_to_clipboard(str(data.get("text", "")))
             return
-        self.view.handle_event(event, data)
+        if event == "popup.close":
+            if isinstance(self.screen, BranchesPopup):
+                self.screen.dismiss()
+            return
+        if event == "branches.refresh":
+            if isinstance(self.screen, BranchesPopup):
+                self.screen.reload()
+            return
+        if event == "context_menu":
+            self._context_menu()
+            return
+        for v in self._views():
+            v.handle_event(event, data)
+
+    @work(group="actions")
+    async def _context_menu(self) -> None:
+        ctx = self.context()
+        actions = [
+            a
+            for a in self.registry.available(ctx)
+            if not a.id.startswith("app.") and a.show_in_palette
+        ]
+        if not actions:
+            self.notify("No actions for the current selection")
+            return
+        options = []
+        for a in actions:
+            key = self.registry.key_for(a)
+            options.append((a.id, f"{a.label}" + (f"   [{pretty_key(key)}]" if key else "")))
+        choice = await self.choose("Actions", options)
+        if choice:
+            await self.dispatcher.dispatch(self.registry.get(choice), ctx)
+            self.refresh_hints()

@@ -62,11 +62,41 @@ async def _abort(env: ActionEnv) -> None:
     env.ui.notify(f"{op.kind} aborted")
 
 
+async def _branches(env: ActionEnv) -> None:
+    env.ui.open_screen("branches")
+
+
+async def _worktrees(env: ActionEnv) -> None:
+    env.ui.open_screen("worktrees")
+
+
+async def _context_menu(env: ActionEnv) -> None:
+    env.ui.post("context_menu")
+
+
 def actions() -> list[Action]:
     resumable = (OpKind.REBASE, OpKind.MERGE, OpKind.CHERRY_PICK, OpKind.REVERT, OpKind.AM)
     return [
         Action("app.refresh", "Refresh", _refresh, key="ctrl+r", group="App"),
         Action("app.quit", "Quit", _quit, key="q", group="App"),
+        Action("app.branches", "Branches…", _branches, key="b", group="Tool windows"),
+        Action("app.show_worktrees", "Worktrees", _worktrees, key="alt+8", group="Tool windows"),
+        Action(
+            "app.worktrees",
+            "Worktrees",
+            _worktrees,
+            key="w",
+            group="Tool windows",
+            show_in_palette=False,
+        ),
+        Action(
+            "app.context_menu",
+            "Actions…",
+            _context_menu,
+            key="alt+enter",
+            group="App",
+            show_in_palette=False,
+        ),
         Action(
             "app.undo",
             "Undo last operation",

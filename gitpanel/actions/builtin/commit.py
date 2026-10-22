@@ -100,6 +100,13 @@ async def _commit(env: ActionEnv) -> None:
     env.ui.post("commit.done")
 
 
+async def _commit_and_push(env: ActionEnv) -> None:
+    from .remote import push_flow
+
+    await _commit(env)  # raises ActionError/GitError when nothing was committed
+    await push_flow(env)
+
+
 async def _toggle_amend(env: ActionEnv) -> None:
     env.ui.post("commit.toggle_amend")
 
@@ -214,8 +221,7 @@ def actions() -> list[Action]:
         Action(
             "commit.commit_and_push",
             "Commit and Push…",
-            _commit,
-            when=lambda ctx: False,  # enabled in M3 together with push
+            _commit_and_push,
             key="ctrl+alt+k",  # PyCharm
             group="Commit",
             screens=SCREEN,

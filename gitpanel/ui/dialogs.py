@@ -3,14 +3,27 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Sequence
+from typing import Any
 
 from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, OptionList, RichLog, Static, TextArea
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Input,
+    Label,
+    OptionList,
+    RichLog,
+    Select,
+    Static,
+    TextArea,
+)
 from textual.widgets.option_list import Option
+
+from ..actions.ui_protocol import Field
 
 DIALOG_CSS = """
 .dialog {
@@ -220,3 +233,71 @@ class OutputDialog(ModalScreen[int]):
     @on(Button.Pressed)
     def pressed(self) -> None:
         self.action_close()
+
+
+class FormDialog(ModalScreen[dict[str, Any] | None]):
+    DEFAULT_CSS = (
+        "FormDialog { align: center middle; }"
+        "FormDialog .field-label { margin-top: 1; color: $text-muted; }"
+        "FormDialog .body { max-height: 14; overflow-y: auto; }"
+        "FormDialog Checkbox { margin-top: 1; }" + DIALOG_CSS
+    )
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "Cancel"),
+        Binding("ctrl+s", "accept", "OK", priority=True),
+    ]
+
+    def __init__(
+        self, title: str, fields: Sequence[Field], body: str, ok_label: str, danger: bool
+    ) -> None:
+        super().__init__()
+        self.title_text, self.fields = title, list(fields)
+        self.body, self.ok_label, self.danger = body, ok_label, danger
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog" + (" -danger" if self.danger else "")):
+            yield Label(self.title_text, classes="title")
+            if self.body:
+                yield Static(self.body, classes="body", markup=False)
+            for f in self.fields:
+                if f.kind == "bool":
+                    yield Checkbox(f.label, bool(f.default), id=f"field-{f.name}")
+                elif f.kind == "choice":
+                    yield Label(f.label, classes="field-label")
+                    yield Select(
+                        [(label, value) for value, label in f.options],
+                        value=f.default if f.default else f.options[0][0],
+                        allow_blank=False,
+                        id=f"field-{f.name}",
+                    )
+                else:
+                    yield Label(f.label, classes="field-label")
+                    yield Input(str(f.default), placeholder=f.placeholder, id=f"field-{f.name}")
+            with Horizontal(classes="buttons"):
+                yield Button("Cancel", id="no")
+                yield Button(self.ok_label, id="yes", variant="error" if self.danger else "primary")
+
+    def on_mount(self) -> None:
+        first = next(iter(self.query("Input, Checkbox, Select")), None)
+        (first or self.query_one("#yes", Button)).focus()
+
+    def values(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for f in self.fields:
+            w = self.query_one(f"#field-{f.name}")
+            out[f.name] = w.value  # type: ignore[attr-defined]
+        return out
+
+    def action_accept(self) -> None:
+        self.dismiss(self.values())
+
+    @on(Input.Submitted)
+    def submitted(self) -> None:
+        self.action_accept()
+
+    @on(Button.Pressed)
+    def pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "yes":
+            self.action_accept()
+        else:
+            self.dismiss(None)

@@ -257,4 +257,9 @@ class LogView(Vertical):
         return []
 
     def handle_event(self, event: str, data: dict[str, Any]) -> None:
-        pass
+        if event == "open" and "branch" in data:
+            for fid in ("f-text", "f-user", "f-path", "f-since"):
+                self.query_one(f"#{fid}", Input).value = ""
+            self.query_one("#f-branch", Input).value = str(data["branch"])
+            self.stale = False
+            self.reload()

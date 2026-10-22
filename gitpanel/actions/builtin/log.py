@@ -132,6 +132,12 @@ async def _copy_hash(env: ActionEnv) -> None:
     env.ui.notify(f"Copied {text[:12]}{'…' if len(text) > 12 else ''}")
 
 
+async def _new_worktree(env: ActionEnv) -> None:
+    from .worktrees import new_worktree_flow
+
+    await new_worktree_flow(env, at=env.ctx.commits[0].sha)
+
+
 async def _show_commit(env: ActionEnv) -> None:
     env.ui.open_screen("commit")
 
@@ -209,6 +215,17 @@ def actions() -> list[Action]:
             when=_one,
             key="R",
             group="Edit history",
+            screens=SCREEN,
+            mutating=True,
+        ),
+        Action(
+            "log.new_worktree",
+            "New Worktree at This Commit…",
+            _new_worktree,
+            scopes=COMMIT,
+            when=_one,
+            key="W",
+            group="Worktree",
             screens=SCREEN,
             mutating=True,
         ),

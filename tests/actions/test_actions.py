@@ -31,6 +31,18 @@ class FakeUi:
     prompt_answers: list[str | None] = field(default_factory=list)
     choose_answers: list[str | None] = field(default_factory=list)
     clipboard: list[str] = field(default_factory=list)
+    form_answers: list[dict[str, Any] | None] = field(default_factory=list)
+    forms: list[tuple[str, list[Any], str]] = field(default_factory=list)
+    terminal_runs: list[list[str]] = field(default_factory=list)
+    opened: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+
+    async def form(self, title, fields, *, body="", ok_label="OK", danger=False):
+        self.forms.append((title, list(fields), body))
+        defaults = {f.name: f.default for f in fields}
+        if self.form_answers:
+            answer = self.form_answers.pop(0)
+            return None if answer is None else {**defaults, **answer}
+        return defaults
 
     async def prompt(
         self, title: str, *, default: str = "", placeholder: str = "", multiline: bool = False
@@ -54,10 +66,11 @@ class FakeUi:
         return 0
 
     async def run_in_terminal(self, argv: Sequence[str], cwd: Path) -> int:
+        self.terminal_runs.append(list(argv))
         return 0
 
     def open_screen(self, name: str, **kwargs: Any) -> None:
-        pass
+        self.opened.append((name, kwargs))
 
     def post(self, event: str, **data: Any) -> None:
         self.posted.append(event)
