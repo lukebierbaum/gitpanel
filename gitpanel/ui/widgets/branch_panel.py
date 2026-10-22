@@ -36,7 +36,7 @@ class BranchPanel(Tree[PanelItem]):
     """Highlight a branch to filter the Log; `space` marks several to combine them."""
 
     DEFAULT_CSS = """
-    BranchPanel { width: 32; background: $surface; border-right: tall $panel; }
+    BranchPanel { width: 32; background: $surface; }
     BranchPanel.-hidden { display: none; }
     """
     BINDINGS = [

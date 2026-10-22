@@ -19,6 +19,7 @@ from ...git.history import file_history, selection_history
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.key_hints import KeyHints
+from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
@@ -28,7 +29,7 @@ class HistoryScreen(Screen[None]):
     DEFAULT_CSS = """
     HistoryScreen { layout: vertical; }
     HistoryScreen #hist-header { height: 1; padding: 0 1; background: $panel; }
-    HistoryScreen CommitTable { height: 40%; border-bottom: tall $panel; }
+    HistoryScreen CommitTable { height: 40%; }
     HistoryScreen DiffView { height: 1fr; }
     """
     BINDINGS = [Binding("escape", "dismiss", "Close")]
@@ -47,6 +48,7 @@ class HistoryScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         yield Static("", id="hist-header")
         yield CommitTable(id="hist-table")
+        yield Splitter("history.table", "y", minimum=4)
         yield DiffView(id="hist-diff")
         yield KeyHints(id="hist-hints")
 

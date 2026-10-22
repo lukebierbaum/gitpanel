@@ -18,6 +18,7 @@ from ...git.graph import GraphRow
 from ...git.markers import Marker
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
+from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
@@ -35,8 +36,9 @@ class CompareView(Vertical):
     CompareView #cmp-lists { height: 50%; }
     CompareView #cmp-lists > Vertical { width: 1fr; }
     CompareView #cmp-lists Label { padding: 0 1; color: $accent; text-style: bold; }
-    CompareView CommitTable { height: 1fr; border-right: tall $panel; }
-    CompareView #cmp-bottom { height: 1fr; border-top: tall $panel; }
+    CompareView CommitTable { height: 1fr; }
+    CompareView #cmp-bottom { height: 1fr; }
+    CompareView #cmp-left-list { width: 50%; }
     CompareView #cmp-details { width: 40%; padding: 0 1; }
     CompareView DiffView { height: 1fr; }
     """
@@ -62,15 +64,18 @@ class CompareView(Vertical):
             id="cmp-header",
         )
         with Horizontal(id="cmp-lists"):
-            with Vertical():
+            with Vertical(id="cmp-left-list"):
                 yield Label("", id="cmp-b-label")
                 yield CommitTable(id="cmp-b")
+            yield Splitter("compare.sides", "x", minimum=20)
             with Vertical():
                 yield Label("", id="cmp-a-label")
                 yield CommitTable(id="cmp-a")
+        yield Splitter("compare.lists", "y", minimum=4)
         with Horizontal(id="cmp-bottom"):
             with VerticalScroll(id="cmp-details"):
                 yield Static("", id="cmp-details-text")
+            yield Splitter("compare.details", "x", minimum=20)
             yield DiffView(id="cmp-diff")
 
     def focus_default(self) -> None:

@@ -17,6 +17,7 @@ from ...git import shelf as SH
 from ...git import stash as ST
 from ...git.models import StashEntry
 from ..widgets.diff_view import DiffView
+from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
@@ -30,7 +31,7 @@ class ShelfView(Vertical):
 
     DEFAULT_CSS = """
     ShelfView { height: 1fr; }
-    ShelfView #shelf-left { width: 40%; min-width: 30; border-right: tall $panel; }
+    ShelfView #shelf-left { width: 40%; min-width: 20; }
     ShelfView #shelf-list { height: 1fr; background: $surface; border: none; }
     ShelfView #shelf-files { height: 40%; background: $surface; border: none;
                              border-top: tall $panel; }
@@ -50,7 +51,9 @@ class ShelfView(Vertical):
         with Horizontal():
             with Vertical(id="shelf-left"):
                 yield OptionList(id="shelf-list")
+                yield Splitter("shelf.list", "y", minimum=3)
                 yield OptionList(id="shelf-files")
+            yield Splitter("shelf.left", "x", minimum=20)
             yield DiffView(id="shelf-diff")
 
     def focus_default(self) -> None:

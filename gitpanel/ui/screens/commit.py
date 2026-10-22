@@ -16,6 +16,7 @@ from ...git.changelists import Changelists
 from ...git.status import status
 from ..widgets.diff_view import DiffView
 from ..widgets.file_tree import FileTree
+from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
@@ -27,7 +28,7 @@ class CommitView(Vertical):
     DEFAULT_CSS = """
     CommitView { height: 1fr; }
     CommitView #commit-body { height: 1fr; }
-    CommitView #commit-left { width: 42%; min-width: 30; border-right: tall $panel; }
+    CommitView #commit-left { width: 42%; min-width: 24; }
     CommitView FileTree { height: 1fr; background: $surface; }
     CommitView #commit-panel { height: auto; padding: 0 1; border-top: tall $panel; }
     CommitView #commit-msg { height: 7; }
@@ -72,6 +73,7 @@ class CommitView(Vertical):
                         yield Checkbox("Sign-off", id="commit-signoff", compact=True)
                         yield Label("", classes="spacer")
                         yield Button("Commit", id="commit-button", variant="primary", compact=True)
+            yield Splitter("commit.changes", "x", minimum=24)
             with Vertical(id="commit-right"):
                 yield Label("", id="diff-title")
                 yield DiffView(id="diff")

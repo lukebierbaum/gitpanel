@@ -29,6 +29,7 @@ from ...git.markers import INCOMING, UNPUSHED, collect, default_providers
 from ..widgets.branch_panel import BranchPanel
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
+from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
@@ -52,9 +53,9 @@ class LogView(Vertical):
     LogView #f-text { width: 2fr; }
     LogView #log-legend { width: 31; min-width: 31; padding: 0 1; display: none; }
     LogView #log-legend.-shown { display: block; }
-    LogView CommitTable { height: 55%; border-bottom: tall $panel; }
+    LogView CommitTable { height: 55%; }
     LogView #log-bottom { height: 1fr; }
-    LogView #log-side { width: 40%; min-width: 30; border-right: tall $panel; }
+    LogView #log-side { width: 40%; min-width: 20; }
     LogView #log-details { height: 1fr; padding: 0 1; }
     LogView #log-files { height: 1fr; background: $surface; border: none; }
     LogView DiffView { height: 1fr; }
@@ -89,13 +90,16 @@ class LogView(Vertical):
             yield Static(legend, id="log-legend")
         with Horizontal(id="log-main"):
             yield BranchPanel(id="log-branches")
+            yield Splitter("log.branches", "x", minimum=16, id="log-branches-split")
             with Vertical(id="log-right"):
                 yield CommitTable(id="log-table")
+                yield Splitter("log.table", "y", minimum=4)
                 with Horizontal(id="log-bottom"):
                     with Vertical(id="log-side"):
                         with VerticalScroll(id="log-details"):
                             yield Static("", id="log-details-text")
                         yield OptionList(id="log-files", compact=True)
+                    yield Splitter("log.details", "x", minimum=20)
                     yield DiffView(id="log-diff")
 
     stale = True
@@ -147,6 +151,7 @@ class LogView(Vertical):
     def action_toggle_branches(self) -> None:
         panel = self.query_one(BranchPanel)
         panel.toggle_class("-hidden")
+        self.query_one("#log-branches-split").set_class(panel.has_class("-hidden"), "-hidden")
         if panel.has_class("-hidden") and panel.has_focus:
             self.query_one(CommitTable).focus()
 
