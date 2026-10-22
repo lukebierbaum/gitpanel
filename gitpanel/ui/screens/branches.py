@@ -204,7 +204,7 @@ class BranchesPopup(ModalScreen[None]):
             return
         # popup: only its own actions (plain letters go to the search box)
         hints.first().show_for(
-            registry, ctx, [("⌥⏎", "more actions"), ("esc", "close")], screen_only=True
+            registry, ctx, [("alt+enter", "more actions"), ("esc", "close")], screen_only=True
         )
 
     def refresh_hints(self) -> None:

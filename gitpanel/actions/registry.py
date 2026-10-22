@@ -99,9 +99,15 @@ class Registry:
         return list(self._actions.values())
 
     def key_for(self, action: Action) -> str | None:
+        """The binding as written (may list alternatives: "2,alt+9")."""
         if action.id in self._key_overrides:
             return self._key_overrides[action.id]
         return action.key
+
+    def keys_for(self, action: Action) -> list[str]:
+        """All keys bound to `action`; the first is the one shown in hints."""
+        raw = self.key_for(action)
+        return [k.strip() for k in raw.split(",") if k.strip()] if raw else []
 
     def rebind(self, overrides: Mapping[str, str | None]) -> None:
         unknown = set(overrides) - set(self._actions)
@@ -113,7 +119,7 @@ class Registry:
         return [a for a in self._actions.values() if a.applies(ctx)]
 
     def for_key(self, ctx: SelectionContext, key: str) -> Action | None:
-        matches = [a for a in self.available(ctx) if self.key_for(a) == key]
+        matches = [a for a in self.available(ctx) if key in self.keys_for(a)]
         if not matches:
             return None
         # prefer the most specific: screen-restricted, then non-global scopes

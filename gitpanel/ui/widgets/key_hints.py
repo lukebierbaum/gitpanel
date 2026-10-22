@@ -8,12 +8,11 @@ from textual.widgets import Static
 from ...actions.context import SelectionContext
 from ...actions.registry import Registry
 
+# Spelled out on purpose: Mac symbols (⌥ ⇧) read as Command/Super on Linux.
 KEY_DISPLAY = {
     "question_mark": "?",
-    "space": "␣",
+    "full_stop": ".",
     "ctrl+": "^",
-    "alt+": "⌥",
-    "shift+": "⇧",
 }
 
 
@@ -47,9 +46,9 @@ class KeyHints(Static):
         for action in registry.available(ctx):
             if screen_only and action.screens is None:
                 continue
-            key = registry.key_for(action)
-            if key:
-                items.append((key, action.label_for(ctx)))
+            keys = registry.keys_for(action)
+            if keys:
+                items.append((keys[0], action.label_for(ctx)))
         items.extend(extra)
         for i, (key, label) in enumerate(items):
             if i:

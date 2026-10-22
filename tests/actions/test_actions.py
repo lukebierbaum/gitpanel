@@ -263,3 +263,14 @@ async def test_ignore_untracked(repo, env):
     )
     await dispatcher.dispatch_id("commit.ignore", ctx)
     assert "/build/out.o" in repo.read(".gitignore")
+
+
+async def test_multiple_keys_per_action(env):
+    session, _ui, registry, _ = env
+    ctx = SelectionContext(session, screen="commit")
+    assert registry.for_key(ctx, "5").id == "app.show_shelf"
+    assert registry.for_key(ctx, "alt+5").id == "app.show_shelf"
+    assert registry.keys_for(registry.get("app.show_log")) == ["2", "alt+9"]
+    registry.rebind({"app.show_log": "ctrl+l, g"})
+    assert registry.for_key(ctx, "g").id == "app.show_log"
+    assert registry.for_key(ctx, "2") is None

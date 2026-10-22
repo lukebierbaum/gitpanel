@@ -100,11 +100,11 @@ class GitPanelApp(App[None]):
         yield Header("gitpanel", id="header")
         yield OperationBanner(id="banner")
         yield Tabs(
-            Tab("Commit  ⌥0", id="tab-commit"),
-            Tab("Log  ⌥9", id="tab-log"),
-            Tab("Worktrees  ⌥8", id="tab-worktrees"),
-            Tab("Compare", id="tab-compare"),
-            Tab("Shelf  ⌥5", id="tab-shelf"),
+            Tab("1 Commit", id="tab-commit"),
+            Tab("2 Log", id="tab-log"),
+            Tab("3 Worktrees", id="tab-worktrees"),
+            Tab("4 Compare", id="tab-compare"),
+            Tab("5 Shelf", id="tab-shelf"),
             id="toolwindows",
         )
         with ContentSwitcher(initial="commit-view", id="views"):
@@ -249,7 +249,7 @@ class GitPanelApp(App[None]):
             hints = self.screen_stack[0].query_one("#hints", KeyHints)
         except Exception:
             return
-        extras = self.view.hint_extras() + [("⌥⏎", "actions"), ("^p", "commands")]
+        extras = self.view.hint_extras() + [("alt+enter", "actions"), ("^p", "commands")]
         base = SelectionContext(self.session, operation=self.operation)
         hints.show_for(self.registry, self.view.context(base), extras)
 
@@ -426,8 +426,9 @@ class GitPanelApp(App[None]):
             return
         options = []
         for a in actions:
-            key = self.registry.key_for(a)
-            options.append((a.id, a.label_for(ctx) + (f"   [{pretty_key(key)}]" if key else "")))
+            keys = self.registry.keys_for(a)
+            shown = f"   [{pretty_key(keys[0])}]" if keys else ""
+            options.append((a.id, a.label_for(ctx) + shown))
         choice = await self.choose("Actions", options)
         if choice:
             await self.dispatcher.dispatch(self.registry.get(choice), ctx)

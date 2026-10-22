@@ -23,8 +23,9 @@ class RegistryCommands(Provider):
         for action in app.registry.available(ctx):
             if not action.show_in_palette:
                 continue
-            key = app.registry.key_for(action)
-            help_text = f"{action.group} · {pretty_key(key)}" if key else action.group
+            keys = app.registry.keys_for(action)
+            shown = " / ".join(pretty_key(k) for k in keys)
+            help_text = f"{action.group} · {shown}" if keys else action.group
             out.append((action, ctx, help_text, action.label_for(ctx)))
         return out
 

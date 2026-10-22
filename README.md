@@ -24,7 +24,7 @@ pixi run demo /tmp/gp-demo      # build a demo repository
 pixi run start /tmp/gp-demo     # open it
 ```
 
-Press `?` anywhere for every action and its key, `ctrl+p` for the command palette, `alt+enter` for actions on the current selection.
+Press `?` anywhere for every action and its key, `ctrl+p` for the command palette, `alt+enter` for actions on the current selection. Tool windows: `1` Commit · `2` Log · `3` Worktrees · `4` Compare · `5` Shelf (`alt+0/9/8/5` also work where the terminal doesn't use them for its own tabs). In the hints, `^` means Ctrl.
 
 ### Commit tool window
 | Key | Action |
@@ -41,7 +41,7 @@ Press `?` anywhere for every action and its key, `ctrl+p` for the command palett
 | `ctrl+p` | command palette (everything available in the current context) |
 | `q` | quit |
 
-### Log (`alt+9`)
+### Log (`2`)
 | Key | Action |
 |---|---|
 | `/` | filter by message text/regex (branch, user, path, since fields alongside) |
@@ -72,7 +72,7 @@ Commits whose change already exists on your branch are dimmed and tagged `✓ pi
 | `alt+h` | file history (Commit window, Log, history) — or history of the selected lines in Annotate |
 | `alt+a` | annotate (git blame); in Annotate: `p` previous revision, `enter` show commit in Log, `v` select lines |
 | `alt+s` / `alt+t` | shelve the selected changes / stash all changes |
-| `alt+5` | Shelf window: shelves and stashes — `enter` unshelve / pop, `a` apply, `d` delete/drop, `B` branch from stash |
+| `5` | Shelf window: shelves and stashes — `enter` unshelve / pop, `a` apply, `d` delete/drop, `B` branch from stash |
 | `f6` | move files to another changelist (new / rename / delete / set active via `alt+enter`) |
 
 ### Patch builder and bisect (Log / History, on a commit's diff selection)
@@ -116,7 +116,7 @@ Conflicted files appear under **Merge Conflicts** in the Commit window and the b
 | Key | Action |
 |---|---|
 | `b` | Branches popup — type to search; `enter` checkout, `ctrl+n` new, `ctrl+k` push, `f2` rename, `ctrl+d` delete, `ctrl+f` favourite, `ctrl+w` new worktree, `alt+enter` all actions |
-| `w` / `alt+8` | Worktrees window — `enter` switch, `n` new, `d` remove, `m` move, `l` lock, `s` shell, `y` copy path |
+| `3` / `w` | Worktrees window — `enter` switch, `n` new, `d` remove, `m` move, `l` lock, `s` shell, `y` copy path |
 | `F` / `ctrl+t` / `P` | fetch / update project (pull, merge or rebase) / push dialog |
 | `alt+enter` | actions for the current selection, anywhere |
 

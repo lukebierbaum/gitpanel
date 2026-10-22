@@ -172,6 +172,6 @@ class RebaseEditorScreen(Screen[None]):
             hints.first().show_for(
                 registry,
                 ctx,
-                [("p r e s f d", "set action"), ("⌥↑↓", "move"), ("esc", "cancel")],
+                [("p r e s f d", "set action"), ("alt+↑↓", "move"), ("esc", "cancel")],
                 screen_only=True,
             )

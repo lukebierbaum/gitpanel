@@ -286,7 +286,7 @@ class Action:
     run: Callable[[ActionEnv], Awaitable[Any]]
     scopes: frozenset[Scope] = frozenset({Scope.GLOBAL})  # where it applies
     when: Callable[[SelectionContext], bool] = always
-    key: str | None = None  # default binding (Textual key syntax)
+    key: str | None = None  # default binding (Textual key syntax); "2,alt+9" = alternatives, first shown
     group: str = ""  # context-menu / palette section
     screens: frozenset[str] | None = None  # restrict to screens; None = anywhere
     mutating: bool = False  # dispatcher wraps in journal.mutation(label)

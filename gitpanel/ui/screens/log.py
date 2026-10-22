@@ -266,7 +266,7 @@ class LogView(Vertical):
     def hint_extras(self) -> list[tuple[str, str]]:
         focused = self.screen.focused
         if isinstance(focused, CommitTable):
-            return [("/", "filter"), ("⇧↑↓", "select")]
+            return [("/", "filter"), ("shift+↑↓", "select")]
         if isinstance(focused, DiffView):
             return [("s", "side-by-side"), ("n/p", "next/prev change")]
         return []

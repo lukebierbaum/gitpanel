@@ -148,8 +148,15 @@ async def _show_log(env: ActionEnv) -> None:
 
 def actions() -> list[Action]:
     return [
-        Action("app.show_commit", "Commit window", _show_commit, key="alt+0", group="Tool windows"),
-        Action("app.show_log", "Git Log", _show_log, key="alt+9", group="Tool windows"),
+        # plain digits first: GNOME Terminal and others take Alt+digit for their own tabs
+        Action(
+            "app.show_commit",
+            "Commit window",
+            _show_commit,
+            key="1,alt+0",
+            group="Tool windows",
+        ),
+        Action("app.show_log", "Git Log", _show_log, key="2,alt+9", group="Tool windows"),
         Action(
             "log.checkout_revision",
             "Checkout Revision",
