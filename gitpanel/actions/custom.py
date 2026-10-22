@@ -7,13 +7,14 @@ one place outside `Git.run` that spawns processes (see CLAUDE.md).
 from __future__ import annotations
 
 import asyncio
+import re
 import shlex
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from ..git.console import CONSOLE
 from .context import Scope
-from .registry import Action, ActionEnv, ActionError
+from .registry import Action, ActionEnv
 
 CONTEXTS = {
     "global": frozenset({Scope.GLOBAL}),
@@ -30,20 +31,29 @@ NEEDS = {
 }
 
 
-class _Quoted(dict[str, str]):
-    def __missing__(self, key: str) -> str:
-        raise ActionError(f"unknown placeholder {{{key}}}")
+PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 def render(template: str, values: Mapping[str, str]) -> str:
-    """Substitute {placeholders}, shell-quoting every value (multi-value ones per item)."""
-    quoted = _Quoted()
+    """Substitute {placeholders}, shell-quoting every value (multi-value ones per item).
+
+    Only known names are replaced, so shell/awk braces like `{ print $1 }` or
+    `${VAR}` pass through untouched.
+    """
+    quoted: dict[str, str] = {}
     for k, v in values.items():
         if k in ("commits", "files"):
             quoted[k] = " ".join(shlex.quote(x) for x in v.split(" ") if x)
         else:
             quoted[k] = shlex.quote(v) if v else "''"
-    return template.format_map(quoted)
+
+    def sub(m: re.Match[str]) -> str:
+        name = m.group(1)
+        if name in quoted and not (m.start() > 0 and template[m.start() - 1] == "$"):
+            return quoted[name]
+        return m.group(0)
+
+    return PLACEHOLDER.sub(sub, template)
 
 
 async def _spawn(cmd: str, cwd: str) -> asyncio.subprocess.Process:

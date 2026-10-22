@@ -70,6 +70,13 @@ def test_render_quotes_values():
     assert out == "echo 'a b; rm -rf /' x y"
 
 
+def test_render_leaves_shell_and_awk_braces_alone():
+    tpl = "git branch -vv | awk '/gone]/ { print $1 }' && echo ${branch} {nope} {branch}"
+    assert render(tpl, {"branch": "main"}) == (
+        "git branch -vv | awk '/gone]/ { print $1 }' && echo ${branch} {nope} main"
+    )
+
+
 async def test_custom_command_modes(repo, tmp_path):
     session, ui, registry, d = await setup(repo)
     errors = register_custom(
@@ -104,3 +111,39 @@ async def test_custom_command_modes(repo, tmp_path):
     await d.dispatch_id("custom.fail", SelectionContext(session))
     assert ui.notifications[-1][0] == "error" and "exit 3" in ui.errors[-1][1]
     assert compile_command({"id": "t", "run": "x", "output": "terminal"}).mutating
+
+
+async def test_multiline_shell_command_with_awk_braces(repo):
+    """The user's gitclean: delete local branches whose upstream is gone (undoable)."""
+    import subprocess
+
+    from gitpanel.config import load
+
+    origin = repo.bare_remote()
+    repo.git("push", "-q", "-u", "origin", "main")
+    repo.branch("old-feature")
+    repo.git("push", "-q", "-u", "origin", "old-feature")
+    subprocess.run(["git", "-C", str(origin), "branch", "-D", "old-feature"], check=True,
+                   capture_output=True)
+    repo.git("fetch", "-q", "--prune")
+    cfg_file = repo.path.parent / "cfg.toml"
+    cfg_file.write_text("""
+[[commands]]
+id = "gitclean"
+output = "none"
+run = '''
+gone=$(git branch -vv | awk '/: gone]/ { if ($1 == "*" || $1 == "+") print $2; else print $1 }')
+if [ -n "$gone" ]; then
+  echo "$gone" | xargs git branch -D
+else
+  echo "No local branches tracking deleted remotes."
+fi
+'''
+""")
+    session, ui, registry, d = await setup(repo)
+    assert register_custom(registry, load(cfg_file).commands) == []
+    await d.dispatch_id("custom.gitclean", SelectionContext(session))
+    assert "old-feature" not in repo.git("branch")
+    assert "Deleted branch old-feature" in ui.notifications[-1][1]
+    await d.dispatch_id("app.undo", SelectionContext(session))
+    assert "old-feature" in repo.git("branch")
