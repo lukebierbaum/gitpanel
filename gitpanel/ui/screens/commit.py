@@ -70,7 +70,12 @@ class CommitView(Vertical):
                 yield Label("", id="diff-title")
                 yield DiffView(id="diff")
 
+    stale = False
+
     def on_mount(self) -> None:
+        self.query_one(FileTree).focus()
+
+    def focus_default(self) -> None:
         self.query_one(FileTree).focus()
 
     # -- data ---------------------------------------------------------------

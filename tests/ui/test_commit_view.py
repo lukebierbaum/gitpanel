@@ -74,7 +74,7 @@ async def test_stage_hunk_from_diff_view(repo):
         await settle(pilot, app)
         move_to(app, "unstaged", "a.txt")
         await settle(pilot, app)
-        view = app.query_one(DiffView)
+        view = app.query_one("#diff", DiffView)
         assert view.diff is not None and len(view.diff.hunks) == 2
         view.focus()
         await pilot.press("n")  # jump to the second change block
@@ -93,7 +93,7 @@ async def test_stage_single_line_with_range(repo):
         await settle(pilot, app)
         move_to(app, "unstaged", "f.txt")
         await settle(pilot, app)
-        view = app.query_one(DiffView)
+        view = app.query_one("#diff", DiffView)
         view.focus()
         # rows: hunk, " a", "-b", "+X", "+Y", " c"; cursor starts at first change (-b)
         await pilot.press("down")  # +X

@@ -55,7 +55,8 @@ gitpanel/
   ui/
     app.py                    # GitPanelApp: owns RepoSession, Registry, Dispatcher; implements Ui
     palette.py                # Textual CommandProvider over the registry
-    widgets/                  # DiffView, PatchSelectView, GraphLog, FileTree, RefTree, OperationBanner, KeyHints
+    theme.py                  # "hulk" (default) and "hulk-light" themes: purple primary, green accents
+    widgets/                  # DiffView (unified + side-by-side), CommitTable, FileTree, OperationBanner, KeyHints
     screens/                  # commit, log, branches, worktrees, conflicts, history, annotate, shelf, rebase_editor, push, compare
     dialogs.py
 tests/

@@ -10,9 +10,8 @@ from typing import Any
 from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
-from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Static
+from textual.widgets import ContentSwitcher, Static, Tab, Tabs
 
 from ..actions.builtin import register_builtin
 from ..actions.context import SelectionContext
@@ -22,16 +21,25 @@ from ..git.operations import OperationState, detect
 from ..git.runner import GitError
 from ..git.session import ChangeKind, RepoSession
 from ..git.status import status
-from .dialogs import ChooseDialog, ConfirmDialog, ErrorDialog, OutputDialog, PromptDialog
+from .dialogs import (
+    ChooseDialog,
+    ConfirmDialog,
+    ErrorDialog,
+    OutputDialog,
+    PromptDialog,
+    TextDialog,
+)
 from .palette import RegistryCommands
 from .screens.commit import CommitView
+from .screens.log import LogView
+from .theme import DEFAULT_THEME, HULK_GREEN, THEMES
 from .widgets.key_hints import KeyHints
 from .widgets.operation_banner import OperationBanner
 
 
 class Header(Static):
     DEFAULT_CSS = """
-    Header { height: 1; background: $primary 40%; padding: 0 1; }
+    Header { height: 1; background: $primary 45%; color: $foreground; padding: 0 1; }
     """
 
 
@@ -41,7 +49,10 @@ class GitPanelApp(App[None]):
     CSS = """
     Screen { layout: vertical; }
     #views { height: 1fr; }
+    #toolwindows { height: 1; background: $panel; }
+    #toolwindows Tab { padding: 0 2; }
     """
+    VIEWS = ("commit", "log")
 
     def __init__(self, path: Path | str = ".", *, registry: Registry | None = None) -> None:
         super().__init__()
@@ -51,13 +62,20 @@ class GitPanelApp(App[None]):
         self.dispatcher = Dispatcher(self.registry, self)
         self.operation: OperationState | None = None
         self.startup_error: str | None = None
+        for theme in THEMES:
+            self.register_theme(theme)
+        self.theme = DEFAULT_THEME
 
     # -- layout ----------------------------------------------------------------
     def compose(self) -> ComposeResult:
         yield Header("gitpanel", id="header")
         yield OperationBanner(id="banner")
-        with Vertical(id="views"):
+        yield Tabs(
+            Tab("Commit  ⌥0", id="tab-commit"), Tab("Log  ⌥9", id="tab-log"), id="toolwindows"
+        )
+        with ContentSwitcher(initial="commit-view", id="views"):
             yield CommitView()
+            yield LogView()
         yield KeyHints(id="hints")
 
     async def on_mount(self) -> None:
@@ -72,8 +90,12 @@ class GitPanelApp(App[None]):
         await self._refresh_all(ChangeKind.ALL)
 
     @property
-    def view(self) -> CommitView:
-        return self.query_one(CommitView)
+    def view(self) -> CommitView | LogView:
+        current = self.query_one(ContentSwitcher).current
+        return self.query_one(LogView) if current == "log-view" else self.query_one(CommitView)
+
+    def _views(self) -> list[CommitView | LogView]:
+        return [self.query_one(CommitView), self.query_one(LogView)]
 
     # -- repo changes ---------------------------------------------------------------
     def _on_change(self, kinds: ChangeKind) -> None:
@@ -104,9 +126,11 @@ class GitPanelApp(App[None]):
         wt = self.session.active
         t = Text()
         t.append("gitpanel ", style="bold")
-        t.append(f" {self.session.common_dir.parent.name} ", style="reverse")
+        t.append(f" {self.session.common_dir.parent.name} ", style=f"bold #101410 on {HULK_GREEN}")
         t.append("  ⎇ ")
-        t.append(branch or f"detached @ {head[:8] if head else 'unborn'}", style="bold")
+        t.append(
+            branch or f"detached @ {head[:8] if head else 'unborn'}", style=f"bold {HULK_GREEN}"
+        )
         if upstream:
             t.append(f"  ↑{ahead} ↓{behind}", style="dim")
         if not wt.is_main:
@@ -172,7 +196,11 @@ class GitPanelApp(App[None]):
             await self.push_screen(ConfirmDialog(title, body, danger), wait_for_dismiss=True)
         )
 
-    async def prompt(self, title: str, *, default: str = "", placeholder: str = "") -> str | None:
+    async def prompt(
+        self, title: str, *, default: str = "", placeholder: str = "", multiline: bool = False
+    ) -> str | None:
+        if multiline:
+            return await self.push_screen(TextDialog(title, default), wait_for_dismiss=True)
         return await self.push_screen(
             PromptDialog(title, default, placeholder), wait_for_dismiss=True
         )
@@ -202,10 +230,30 @@ class GitPanelApp(App[None]):
             return subprocess.run(list(argv), cwd=cwd).returncode
 
     def open_screen(self, name: str, **kwargs: Any) -> None:
-        pass  # more tool windows arrive in later milestones
+        if name not in self.VIEWS:
+            return
+        switcher = self.query_one(ContentSwitcher)
+        if switcher.current == f"{name}-view":
+            return
+        switcher.current = f"{name}-view"
+        self.query_one(Tabs).active = f"tab-{name}"
+        view = self.view
+        if getattr(view, "stale", True):
+            view.stale = False  # type: ignore[union-attr]
+            view.reload()
+        view.focus_default()
+        self.refresh_hints()
+
+    @on(Tabs.TabActivated, "#toolwindows")
+    def _tab_activated(self, event: Tabs.TabActivated) -> None:
+        if event.tab.id:
+            self.open_screen(event.tab.id.removeprefix("tab-"))
 
     def post(self, event: str, **data: Any) -> None:
         if event == "app.quit":
             self.exit()
+            return
+        if event == "clipboard":
+            self.copy_to_clipboard(str(data.get("text", "")))
             return
         self.view.handle_event(event, data)

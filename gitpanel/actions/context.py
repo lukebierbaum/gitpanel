@@ -72,6 +72,7 @@ class SelectionContext:
             "repo": str(self.session.active.path),
             "worktree": str((self.worktree or self.session.active).path),
             "commit": self.commits[0].sha if self.commits else "",
+            "short": self.commits[0].short if self.commits else "",
             "commits": " ".join(c.sha for c in self.commits),
             "branch": branch,
             "ref": first_ref,

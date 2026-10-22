@@ -2,7 +2,7 @@
 
 A PyCharm-style Git client for the terminal: commit tool window with hunk/line staging, log with branch graph, branches popup, worktrees, cherry-picking between branches, 3-pane conflict resolver, history/annotate, shelves, interactive rebase, and undo.
 
-**Status:** milestone 1 of 10 done (commit tool window + foundations). See [docs/ROADMAP.md](docs/ROADMAP.md).
+**Status:** milestones 1–2 of 10 done (commit tool window, log with graph). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Try it
 Requires [pixi](https://pixi.sh).
@@ -25,6 +25,19 @@ pixi run start /tmp/gp-demo     # open it
 | `z` / `Z` | undo / redo the last operation, including discarded changes |
 | `ctrl+p` | command palette (everything available in the current context) |
 | `q` | quit |
+
+### Log (`alt+9`)
+| Key | Action |
+|---|---|
+| `/` | filter by message text/regex (branch, user, path, since fields alongside) |
+| `shift+↑↓` | select several commits |
+| `R` | edit commit message (any commit on the current branch) |
+| `B` / `T` | new branch / tag at the commit |
+| `y` | copy hash |
+| `ctrl+p` | everything else: checkout revision, reset to here, revert… |
+| `s` (in a diff) | side-by-side diff |
+
+Colour scheme: **Hulk** (purple + gamma green) by default; `hulk-light` is available from the palette's theme switcher.
 
 ### `cd` into the worktree you were in when you quit
 ```bash

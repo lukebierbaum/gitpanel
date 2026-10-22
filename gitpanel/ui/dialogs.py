@@ -9,7 +9,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Input, Label, OptionList, RichLog, Static
+from textual.widgets import Button, Input, Label, OptionList, RichLog, Static, TextArea
 from textual.widgets.option_list import Option
 
 DIALOG_CSS = """
@@ -85,6 +85,43 @@ class PromptDialog(ModalScreen[str | None]):
     @on(Button.Pressed)
     def pressed(self, event: Button.Pressed) -> None:
         self.dismiss(self.query_one(Input).value if event.button.id == "yes" else None)
+
+
+class TextDialog(ModalScreen[str | None]):
+    """Multi-line prompt (commit messages). ctrl+s / ctrl+enter accept."""
+
+    DEFAULT_CSS = (
+        "TextDialog { align: center middle; } TextDialog TextArea { height: 12; }" + DIALOG_CSS
+    )
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "Cancel"),
+        Binding("ctrl+s,ctrl+enter", "accept", "OK", priority=True),
+    ]
+
+    def __init__(self, title: str, default: str) -> None:
+        super().__init__()
+        self.title_text, self.default = title, default
+
+    def compose(self) -> ComposeResult:
+        with Vertical(classes="dialog"):
+            yield Label(self.title_text + "  (ctrl+s to accept)", classes="title")
+            yield TextArea(self.default, id="value", soft_wrap=True)
+            with Horizontal(classes="buttons"):
+                yield Button("Cancel", id="no")
+                yield Button("OK", id="yes", variant="primary")
+
+    def on_mount(self) -> None:
+        self.query_one(TextArea).focus()
+
+    def action_accept(self) -> None:
+        self.dismiss(self.query_one(TextArea).text)
+
+    @on(Button.Pressed)
+    def pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "yes":
+            self.action_accept()
+        else:
+            self.dismiss(None)
 
 
 class ChooseDialog(ModalScreen[str | None]):

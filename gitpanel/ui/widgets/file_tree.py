@@ -23,8 +23,8 @@ GROUPS: list[tuple[FileGroup, str]] = [
 ]
 
 STATUS_STYLE = {
-    ChangeType.ADDED: "green",
-    ChangeType.MODIFIED: "blue",
+    ChangeType.ADDED: "#6CCB3A",
+    ChangeType.MODIFIED: "#B58CE8",
     ChangeType.DELETED: "red",
     ChangeType.RENAMED: "cyan",
     ChangeType.COPIED: "cyan",

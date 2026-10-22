@@ -29,6 +29,71 @@ class Row:
     marker: str = " "
     old_no: int | None = None
     new_no: int | None = None
+    pair: Row | None = None  # right-hand side in side-by-side mode
+
+    @property
+    def changed(self) -> bool:
+        if self.kind != "line":
+            return False
+        return self.marker in "+-" or (self.pair is not None and self.pair.marker in "+-")
+
+
+def build_split_rows(diff: FileDiff | None, message: str = "") -> list[Row]:
+    """Side-by-side rows: left = old side, `pair` = new side; change blocks are zipped."""
+    unified = build_rows(diff, message)
+    out: list[Row] = []
+    i = 0
+    blank = Row("line", "", marker="")
+    while i < len(unified):
+        r = unified[i]
+        if r.kind != "line":
+            out.append(r)
+            i += 1
+            continue
+        if r.marker == " ":
+            out.append(
+                Row(
+                    "line",
+                    r.text,
+                    r.hunk,
+                    r.line,
+                    " ",
+                    r.old_no,
+                    None,
+                    Row("line", r.text, r.hunk, r.line, " ", None, r.new_no),
+                )
+            )
+            i += 1
+            continue
+        if r.marker == "\\":
+            i += 1
+            continue
+        removed: list[Row] = []
+        added: list[Row] = []
+        while i < len(unified) and unified[i].kind == "line" and unified[i].marker in "-+\\":
+            u = unified[i]
+            if u.marker == "-":
+                removed.append(u)
+            elif u.marker == "+":
+                added.append(u)
+            i += 1
+        for k in range(max(len(removed), len(added))):
+            left = removed[k] if k < len(removed) else None
+            right = added[k] if k < len(added) else None
+            base = left or Row("line", "", (right or blank).hunk, -1, "")
+            out.append(
+                Row(
+                    "line",
+                    base.text,
+                    base.hunk,
+                    base.line,
+                    base.marker,
+                    base.old_no,
+                    None,
+                    right or Row("line", "", base.hunk, -1, ""),
+                )
+            )
+    return out
 
 
 def build_rows(diff: FileDiff | None, message: str = "") -> list[Row]:
@@ -106,6 +171,7 @@ class DiffView(ScrollView, can_focus=True):
         Binding("escape", "clear_range", "Clear selection", show=False),
         Binding("n,f7", "next_hunk(1)", "Next change", show=False),
         Binding("p,shift+f7", "next_hunk(-1)", "Previous change", show=False),
+        Binding("s", "toggle_split", "Side-by-side", show=False),
     ]
 
     cursor: reactive[int] = reactive(0, always_update=True)
@@ -121,6 +187,8 @@ class DiffView(ScrollView, can_focus=True):
         self.diff: FileDiff | None = None
         self.rows: list[Row] = []
         self.anchor: int | None = None
+        self.split = False
+        self._message = ""
         self._max_width = 0
 
     # -- content -------------------------------------------------------------
@@ -141,10 +209,8 @@ class DiffView(ScrollView, can_focus=True):
         old_cursor = self.cursor
         self.source = source
         self.diff = diff
-        self.rows = build_rows(diff, message)
-        self.anchor = None
-        self._max_width = max((GUTTER + 1 + len(r.text) for r in self.rows), default=0)
-        self.virtual_size = Size(self._max_width, len(self.rows))
+        self._message = message
+        self._rebuild()
         if same_file:
             self.cursor = min(old_cursor, max(len(self.rows) - 1, 0))
         else:
@@ -153,9 +219,34 @@ class DiffView(ScrollView, can_focus=True):
         self.refresh()
         self.post_message(self.SelectionChanged(self))
 
+    def _rebuild(self) -> None:
+        if self.split:
+            self.rows = build_split_rows(self.diff, self._message)
+            self._max_width = 0
+        else:
+            self.rows = build_rows(self.diff, self._message)
+            self._max_width = max((GUTTER + 1 + len(r.text) for r in self.rows), default=0)
+        self.anchor = None
+        self.virtual_size = Size(self._max_width, len(self.rows))
+
+    def action_toggle_split(self) -> None:
+        current = self.rows[self.cursor] if self.rows else None
+        self.split = not self.split
+        self._rebuild()
+        target = 0
+        if current is not None:
+            for i, r in enumerate(self.rows):
+                if r.hunk == current.hunk and (
+                    r.line == current.line or (r.pair is not None and r.pair.line == current.line)
+                ):
+                    target = i
+                    break
+        self.cursor = target
+        self.refresh()
+
     def _first_change(self) -> int:
         for i, r in enumerate(self.rows):
-            if r.kind == "line" and r.marker in "+-":
+            if r.changed:
                 return i
         return 0
 
@@ -230,11 +321,17 @@ class DiffView(ScrollView, can_focus=True):
         self.cursor = 0 if where == 0 else len(self.rows) - 1
 
     def action_extend(self, delta: int) -> None:
+        if self.split:
+            self.cursor += delta
+            return
         if self.anchor is None:
             self.anchor = self.cursor
         self.cursor += delta
 
     def action_toggle_range(self) -> None:
+        if self.split:
+            self.notify("Line selection works in the unified view (press s)", severity="warning")
+            return
         self.anchor = None if self.anchor is not None else self.cursor
         self.refresh()
         self.post_message(self.SelectionChanged(self))
@@ -251,7 +348,7 @@ class DiffView(ScrollView, can_focus=True):
         rows = self.rows
 
         def is_change(k: int) -> bool:
-            return rows[k].kind == "line" and rows[k].marker in "+-"
+            return rows[k].changed
 
         # leave the current block first
         while 0 <= i < len(rows) and is_change(i):
@@ -284,6 +381,8 @@ class DiffView(ScrollView, can_focus=True):
         if idx >= len(self.rows):
             return Strip.blank(width, base)
         row = self.rows[idx]
+        if self.split and row.kind == "line":
+            return self._render_split(row, idx, width, base)
         style = self.get_component_rich_style
         gutter_style = style("diff-view--gutter")
         if row.kind == "info":
@@ -332,6 +431,43 @@ class DiffView(ScrollView, can_focus=True):
             strip = Strip(
                 [Segment(seg.text, (seg.style or Style()) + top, seg.control) for seg in strip],
                 strip.cell_length,
+            )
+        return strip
+
+    def _side_segments(self, r: Row | None, w: int, base: Style) -> list[Segment]:
+        style = self.get_component_rich_style
+        if r is None or (r.marker == "" and not r.text):
+            return [Segment(" " * w, base + style("diff-view--gutter"))]
+        no = r.old_no if r.old_no is not None else r.new_no
+        gutter = f"{'' if no is None else no:>5} "
+        text_style = {
+            "+": style("diff-view--added"),
+            "-": style("diff-view--removed"),
+        }.get(r.marker, Style())
+        body = (r.marker if r.marker in "+-" else " ") + r.text
+        room = max(w - len(gutter), 0)
+        body = body[:room].ljust(room)
+        return [
+            Segment(gutter, base + style("diff-view--gutter")),
+            Segment(body, base + text_style),
+        ]
+
+    def _render_split(self, row: Row, idx: int, width: int, base: Style) -> Strip:
+        style = self.get_component_rich_style
+        half = max((width - 1) // 2, 8)
+        segs = self._side_segments(row, half, base)
+        segs.append(Segment("│", base + style("diff-view--gutter")))
+        segs += self._side_segments(row.pair, width - half - 1, base)
+        strip = Strip(segs).crop_extend(0, width, base)
+        overlay = None
+        if idx == self.cursor:
+            overlay = style("diff-view--cursor")
+        elif self.rows[self.cursor].hunk == row.hunk and row.hunk >= 0 and self.has_focus:
+            overlay = style("diff-view--hunk-active")
+        if overlay is not None and overlay.bgcolor is not None:
+            top = Style(bgcolor=overlay.bgcolor)
+            strip = Strip(
+                [Segment(sg.text, (sg.style or Style()) + top) for sg in strip], strip.cell_length
             )
         return strip
 

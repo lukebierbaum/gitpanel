@@ -28,10 +28,18 @@ class FakeUi:
         self.confirms.append(body)
         return self.confirm_answer
 
-    async def prompt(self, title: str, *, default: str = "", placeholder: str = "") -> str | None:
-        return default
+    prompt_answers: list[str | None] = field(default_factory=list)
+    choose_answers: list[str | None] = field(default_factory=list)
+    clipboard: list[str] = field(default_factory=list)
+
+    async def prompt(
+        self, title: str, *, default: str = "", placeholder: str = "", multiline: bool = False
+    ) -> str | None:
+        return self.prompt_answers.pop(0) if self.prompt_answers else default
 
     async def choose(self, title: str, options: Sequence[tuple[str, str]]) -> str | None:
+        if self.choose_answers:
+            return self.choose_answers.pop(0)
         return options[0][0] if options else None
 
     def notify(self, message: str, *, severity: str = "information") -> None:
@@ -53,6 +61,8 @@ class FakeUi:
 
     def post(self, event: str, **data: Any) -> None:
         self.posted.append(event)
+        if event == "clipboard":
+            self.clipboard.append(data["text"])
 
 
 @pytest.fixture

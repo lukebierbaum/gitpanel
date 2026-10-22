@@ -13,7 +13,7 @@ class Ui(Protocol):
     async def confirm(self, title: str, body: str = "", *, danger: bool = False) -> bool: ...
 
     async def prompt(
-        self, title: str, *, default: str = "", placeholder: str = ""
+        self, title: str, *, default: str = "", placeholder: str = "", multiline: bool = False
     ) -> str | None: ...
 
     async def choose(self, title: str, options: Sequence[tuple[str, str]]) -> str | None:
