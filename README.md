@@ -44,7 +44,7 @@ Press `?` anywhere for every action and its key, `ctrl+p` for the command palett
 ### Log (`2`)
 | Key | Action |
 |---|---|
-| (left panel) | **Branches**: highlight a branch to see only its history; `space` marks several to combine them, `esc` clears, *All branches* shows everything; `enter` checks out, `ctrl+e` compares, `alt+enter` for every branch action; `[` hides/shows the panel |
+| (left panel) | **Branches**, in folders by `/` (`feature/…`, `release/…`; `→`/`←` open and close them): highlight a branch to see only its history; `space` marks several to combine them (on a folder: every branch in it), `esc` clears, *All branches* shows everything; `enter` checks out, `ctrl+e` compares, `alt+enter` for every branch action; `[` hides/shows the panel |
 | `/` | filter by message text/regex (branch, user, path, since fields alongside) |
 | `shift+↑↓` | select several commits |
 | `R` | edit commit message (any commit on the current branch) |

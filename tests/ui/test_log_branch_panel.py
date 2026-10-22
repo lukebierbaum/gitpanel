@@ -71,3 +71,49 @@ async def test_branch_panel_filters_log_marks_and_checks_out(repo):
         await pilot.press("left_square_bracket")
         await settle(pilot, app)
         assert panel.has_class("-hidden")
+
+
+async def test_branches_are_grouped_into_folders(repo):
+    for name in ("feature/search", "feature/tokens", "feature/ui/dark", "release/1.x"):
+        repo.branch(name)
+        repo.checkout(name)
+        repo.commit({f"{name.replace('/', '_')}.txt": "x\n"}, f"work on {name}")
+    repo.checkout("main")
+    app = GitPanelApp(repo.path)
+    async with app.run_test(size=(170, 45)) as pilot:
+        await settle(pilot, app)
+        await pilot.press("2")
+        await settle(pilot, app)
+        panel = app.query_one(BranchPanel)
+        local = next(n for n in panel.root.children if n.data.key == "group:local")
+        names = [str(n.label).split("  ")[0] for n in local.children]
+        assert names[:2] == ["feature", "release"]  # folders first
+        feature = local.children[0]
+        assert not feature.is_expanded  # folders start closed
+        sub = [str(n.label).strip().split("  ")[0] for n in feature.children]
+        assert sub[0] == "ui" and {s.strip() for s in sub[1:]} == {"search", "tokens"}
+        # open the folder, pick a branch inside it
+        panel.focus()
+        panel.move_cursor(feature)
+        await settle(pilot, app)
+        await pilot.press("right")
+        await settle(pilot, app)
+        assert feature.is_expanded
+        search = next(n for n in feature.children if n.data.filter == "feature/search")
+        panel.move_cursor(search)
+        await settle(pilot, app)
+        assert subjects(app)[0] == "work on feature/search"
+        # space on the folder marks every branch in it
+        panel.move_cursor(feature)
+        await settle(pilot, app)
+        await pilot.press("space")
+        await settle(pilot, app)
+        assert set(panel.marked) == {"refs/heads/feature/search", "refs/heads/feature/tokens",
+                                     "refs/heads/feature/ui/dark"}
+        assert {s for s in subjects(app) if s.startswith("work")} == {
+            "work on feature/search", "work on feature/tokens", "work on feature/ui/dark"}
+        # folder state survives a refresh
+        app.view.reload()
+        await settle(pilot, app)
+        local = next(n for n in panel.root.children if n.data.key == "group:local")
+        assert local.children[0].is_expanded

@@ -29,6 +29,7 @@ class PanelItem:
     filter: str = ""  # value for the log's branch filter
     ref: Any = None  # BranchRef or tag Ref
     key: str = ""  # stable identity for restoring the cursor
+    strip: str = ""  # folder prefix hidden from the label (e.g. "origin/feature/")
 
 
 class BranchPanel(Tree[PanelItem]):
@@ -65,6 +66,7 @@ class BranchPanel(Tree[PanelItem]):
         self.guide_depth = 2
         self.marked: dict[str, str] = {}  # key → filter
         self._collapsed: set[str] = {"group:tags"}
+        self._expanded: set[str] = set()  # folders the user opened (folders start closed)
         self._last: tuple[str, ...] | None = None
         self._data: dict[str, Any] = {}
 
@@ -93,10 +95,10 @@ class BranchPanel(Tree[PanelItem]):
         def fav_first(b: Any) -> tuple[bool, str]:
             return (b.name not in favorites, b.short.lower())
 
-        local = sorted((b for b in branches if b.is_local), key=fav_first)
+        self._fav_first = fav_first
+        local = [b for b in branches if b.is_local]
         node = self._group("Local", "group:local", len(local))
-        for b in local:
-            node.add_leaf(self._label(b), PanelItem("ref", b.short, b, b.name))
+        self._add_nested(node, local, "", "local")
 
         by_remote: dict[str, list[BranchRef]] = defaultdict(list)
         for b in branches:
@@ -110,16 +112,45 @@ class BranchPanel(Tree[PanelItem]):
                     PanelItem("group", key=f"group:remote:{remote}"),
                     expand=f"group:remote:{remote}" not in self._collapsed,
                 )
-                for b in sorted(by_remote[remote], key=fav_first):
-                    sub.add_leaf(
-                        self._label(b, strip=f"{remote}/"), PanelItem("ref", b.short, b, b.name)
-                    )
+                self._add_nested(sub, by_remote[remote], f"{remote}/", f"remote:{remote}")
         if tags:
             tag_node = self._group("Tags", "group:tags", len(tags))
-            for t in sorted(tags, key=lambda t: t.short.lower(), reverse=True):
-                tag_node.add_leaf(self._label(t), PanelItem("ref", t.short, t, t.name))
+            self._add_nested(tag_node, tags, "", "tags")
         self.root.expand()
         self.call_after_refresh(self._restore, prev)
+
+    def _add_nested(
+        self, parent: TreeNode[PanelItem], refs: list[Any], strip: str, scope: str
+    ) -> None:
+        """Branches named a/b/c become folders a › b › leaf c (folders first, then leaves)."""
+        folders: dict[str, list[Any]] = defaultdict(list)
+        leaves: list[Any] = []
+        for r in refs:
+            head, sep, _rest = r.short.removeprefix(strip).partition("/")
+            if sep:
+                folders[head].append(r)
+            else:
+                leaves.append(r)
+        current = self._data.get("current")
+        for name in sorted(folders, key=str.lower):
+            items = folders[name]
+            key = f"dir:{scope}:{strip}{name}"
+            holds_focus = any(r.name == current or r.name in self.marked for r in items)
+            expand = key in self._expanded or (holds_focus and key not in self._collapsed)
+            label = Text.assemble((name, f"bold {PURPLE}"), (f"  {len(items)}", "dim"))
+            folder = parent.add(label, PanelItem("group", key=key), expand=expand)
+            self._add_nested(folder, items, f"{strip}{name}/", scope)
+        tag_order = scope == "tags"
+        for r in sorted(
+            leaves,
+            key=(lambda r: r.short.lower()) if tag_order else self._fav_first,
+            reverse=tag_order,
+        ):
+            folder_prefix = strip
+            parent.add_leaf(
+                self._label(r, strip=folder_prefix),
+                PanelItem("ref", r.short, r, r.name, folder_prefix),
+            )
 
     def _group(self, title: str, key: str, count: int) -> TreeNode[PanelItem]:
         label = Text.assemble((title, f"bold {PURPLE}"), (f"  {count}", "dim"))
@@ -190,24 +221,52 @@ class BranchPanel(Tree[PanelItem]):
     def on_tree_node_selected(self, event: Tree.NodeSelected) -> None:
         event.stop()
 
+    def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
+        event.stop()
+        if event.node.data is not None:
+            self._collapsed.discard(event.node.data.key)
+            self._expanded.add(event.node.data.key)
+
+    def on_tree_node_collapsed(self, event: Tree.NodeCollapsed) -> None:
+        event.stop()
+        if event.node.data is not None:
+            self._expanded.discard(event.node.data.key)
+            self._collapsed.add(event.node.data.key)
+
     def action_toggle_mark(self) -> None:
-        item = self.selected_item()
-        if item is None or item.kind not in ("ref", "head"):
-            return
-        key = item.ref.name if item.kind == "ref" else "head"
-        if key in self.marked:
-            del self.marked[key]
-        else:
-            self.marked[key] = item.filter
         node = self.cursor_node
-        if node is not None and item.kind == "ref":
-            node.set_label(
-                self._label(
-                    item.ref,
-                    strip=f"{item.ref.remote}/" if getattr(item.ref, "is_remote", False) else "",
-                )
-            )
+        item = self.selected_item()
+        if node is None or item is None or item.kind == "all":
+            return
+        if item.kind == "group":
+            # a folder/section: mark every branch inside it (or unmark them all)
+            leaves = [n.data for n in self._leaves(node)]
+            if not leaves:
+                return
+            if all(d.ref.name in self.marked for d in leaves):
+                for d in leaves:
+                    self.marked.pop(d.ref.name, None)
+            else:
+                for d in leaves:
+                    self.marked[d.ref.name] = d.filter
+            self._refresh_labels()
+        else:
+            key = item.ref.name if item.kind == "ref" else "head"
+            if key in self.marked:
+                del self.marked[key]
+            else:
+                self.marked[key] = item.filter
+            if item.kind == "ref":
+                node.set_label(self._label(item.ref, strip=item.strip))
         self._announce()
+
+    def _leaves(self, node: TreeNode[PanelItem]) -> list[TreeNode[PanelItem]]:
+        out = []
+        for child in node.children:
+            if child.data is not None and child.data.kind == "ref":
+                out.append(child)
+            out += self._leaves(child)
+        return out
 
     def action_clear_marks(self) -> None:
         if not self.marked:
@@ -221,9 +280,7 @@ class BranchPanel(Tree[PanelItem]):
         def walk(node: TreeNode[PanelItem]) -> None:
             for child in node.children:
                 if child.data is not None and child.data.kind == "ref":
-                    ref = child.data.ref
-                    strip = f"{ref.remote}/" if getattr(ref, "is_remote", False) else ""
-                    child.set_label(self._label(ref, strip=strip))
+                    child.set_label(self._label(child.data.ref, strip=child.data.strip))
                 walk(child)
 
         walk(self.root)
@@ -234,8 +291,6 @@ class BranchPanel(Tree[PanelItem]):
             return
         if node.allow_expand and node.is_expanded:
             node.collapse()
-            if node.data is not None:
-                self._collapsed.add(node.data.key)
         elif node.parent is not None and node.parent is not self.root:
             self.move_cursor(node.parent)
 
@@ -245,7 +300,5 @@ class BranchPanel(Tree[PanelItem]):
             return
         if node.allow_expand and not node.is_expanded:
             node.expand()
-            if node.data is not None:
-                self._collapsed.discard(node.data.key)
         elif node.children:
             self.move_cursor(node.children[0])
