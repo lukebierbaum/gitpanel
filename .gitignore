@@ -1,0 +1,17 @@
+# pixi
+.pixi/
+*.egg-info/
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+build/
+dist/
+
+# editors
+.idea/
+.vscode/
+*.swp
+.DS_Store
