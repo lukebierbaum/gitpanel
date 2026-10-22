@@ -26,7 +26,8 @@ max_age_days = 30
 [confirm]
 destructive = true           # ask before actions that discard work (they're always backed up)
 
-[keys]                       # action id = key, or "key1,key2" for alternatives ("" unbinds); ids are in `?`
+[keys]                       # action id = key; "key1,key2" for alternatives; "" unbinds
+                             # (action ids are listed in the app under `?`)
 # "commit.commit" = "ctrl+s"
 # "app.quit" = "ctrl+q"
 
