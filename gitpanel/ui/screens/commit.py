@@ -33,7 +33,8 @@ class CommitView(Vertical):
     CommitView #commit-msg { height: 7; }
     CommitView #commit-options { height: auto; margin-top: 1; }
     CommitView #commit-options Checkbox { margin-right: 1; }
-    CommitView #commit-author { width: 1fr; }
+    CommitView #commit-options .spacer { width: 1fr; }
+    CommitView #commit-author { width: 1fr; margin-top: 1; }
     CommitView #commit-button { margin-left: 1; }
     CommitView #diff-title { height: 1; padding: 0 1; background: $panel; color: $text-muted; }
     CommitView DiffView { height: 1fr; }
@@ -61,12 +62,15 @@ class CommitView(Vertical):
                         placeholder="Commit message  (alt+↑/↓ history)",
                         show_line_numbers=False,
                     )
+                    yield Input(
+                        placeholder="Author (optional, Name <email>)",
+                        id="commit-author",
+                        compact=True,
+                    )
                     with Horizontal(id="commit-options"):
                         yield Checkbox("Amend", id="commit-amend", compact=True)
                         yield Checkbox("Sign-off", id="commit-signoff", compact=True)
-                        yield Input(
-                            placeholder="Author (optional)", id="commit-author", compact=True
-                        )
+                        yield Label("", classes="spacer")
                         yield Button("Commit", id="commit-button", variant="primary", compact=True)
             with Vertical(id="commit-right"):
                 yield Label("", id="diff-title")
