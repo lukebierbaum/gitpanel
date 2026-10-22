@@ -9,7 +9,7 @@ A PyCharm-style Git client for the terminal: commit tool window with hunk/line s
 | ![Log](docs/screenshots/log.svg) | ![Compare branches](docs/screenshots/compare.svg) |
 | ![Branches popup](docs/screenshots/branches.svg) | ![Conflict resolver](docs/screenshots/resolver.svg) |
 
-**Status:** milestones 1–9 of 10 done — see [docs/ROADMAP.md](docs/ROADMAP.md). Remaining: patch builder, bisect, custom commands.
+**Status:** all 10 milestones of the [roadmap](docs/ROADMAP.md) are implemented.
 
 ## Install
 ```bash
@@ -74,6 +74,30 @@ Commits whose change already exists on your branch are dimmed and tagged `✓ pi
 | `alt+s` / `alt+t` | shelve the selected changes / stash all changes |
 | `alt+5` | Shelf window: shelves and stashes — `enter` unshelve / pop, `a` apply, `d` delete/drop, `B` branch from stash |
 | `f6` | move files to another changelist (new / rename / delete / set active via `alt+enter`) |
+
+### Patch builder and bisect (Log / History, on a commit's diff selection)
+| Key | Action |
+|---|---|
+| `alt+r` | remove the selected hunks/lines from that commit |
+| `alt+n` | move them out into a new commit right after it |
+| `alt+m` | move them into another commit on the branch |
+| `alt+i` | move them out of the commit into the index |
+| `alt+v` | revert them in the working tree |
+| `alt+b` / `alt+g` / `alt+k` | bisect: mark the selected commit bad / good / skip (starts a bisect); `ctrl+p` → "Bisect: Run a Command…" automates it |
+
+### Custom commands
+```toml
+[[commands]]
+id = "open-pr"
+label = "Open pull request"
+key = "ctrl+o"
+context = "branch"            # global | commit | branch | file | worktree
+run = "gh pr view --web {branch}"
+output = "none"               # none | popup | terminal
+read_only = true              # false (default) records it in the undo journal
+# confirm = "Really?"   prompts = [{ name = "msg", label = "Message" }]  → {msg}
+```
+Placeholders: `{repo} {worktree} {commit} {commits} {short} {branch} {ref} {file} {files} {count}` and your prompts — all shell-quoted. They show up in `?`, the palette and `alt+enter`.
 
 ### Merge conflicts
 Conflicted files appear under **Merge Conflicts** in the Commit window and the banner offers Continue / Skip / Abort.

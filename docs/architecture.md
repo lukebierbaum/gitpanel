@@ -44,14 +44,14 @@ gitpanel/
     _editor.py                # GIT_EDITOR / GIT_SEQUENCE_EDITOR helper (python -m gitpanel.git._editor)
     markers.py                # Marker, MarkerProvider, built-in providers
     status.py  log.py  graph.py  refs.py  remote.py  commit.py  cherry_pick.py
-    merge_rebase.py  conflicts.py  history.py  stash.py  shelf.py  changelists.py
+    conflicts.py  history.py  stash.py  shelf.py  changelists.py  patch_builder.py
     reset_revert.py  tags.py  worktrees.py  bisect.py
   actions/
     registry.py               # Action, Registry, Dispatcher
     context.py                # SelectionContext, Scope
     ui_protocol.py            # Ui protocol (confirm/prompt/choose/notify/show_error/show_output/run_in_terminal/post)
     builtin/                  # one module per area: commit.py, log.py, branches.py, worktrees.py, …
-    custom.py                 # [[commands]] from config → Actions
+    custom.py                 # [[commands]] from config → Actions (sh -c, shell-quoted values)
   ui/
     app.py                    # GitPanelApp: owns RepoSession, Registry, Dispatcher; implements Ui
     palette.py                # Textual CommandProvider over the registry

@@ -15,6 +15,7 @@ from textual.widgets import ContentSwitcher, Static, Tab, Tabs
 
 from ..actions.builtin import register_builtin
 from ..actions.context import SelectionContext
+from ..actions.custom import register_custom
 from ..actions.registry import Action, Dispatcher, Registry
 from ..actions.ui_protocol import Field, Severity
 from ..config import Config
@@ -142,6 +143,7 @@ class GitPanelApp(App[None]):
             )
         cfg = self.config
         self.dispatcher.config = cfg
+        cfg.errors += [f"commands: {e}" for e in register_custom(self.registry, cfg.commands)]
         if cfg.theme in self.available_themes:
             self.theme = cfg.theme
         else:

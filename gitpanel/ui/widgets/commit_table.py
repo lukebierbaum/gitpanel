@@ -33,6 +33,10 @@ MARKER_STYLES = {
     "tag": Style(color="#E3B23C"),
     "worktree": Style(color="#3FB8AF", italic=True),
     "picked": Style(color="#8A8F87", italic=True),
+    "bisect-bad": Style(color="#101410", bgcolor="#E5484D", bold=True),
+    "bisect-good": Style(color="#101410", bgcolor="#6CCB3A", bold=True),
+    "bisect-skip": Style(color="#E3B23C", italic=True),
+    "bisect-current": Style(color="#101410", bgcolor="#E3B23C", bold=True),
 }
 
 AUTHOR_W = 16

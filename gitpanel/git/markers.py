@@ -110,8 +110,37 @@ class PickedMarkers:
         }
 
 
+class BisectMarkers:
+    """good / bad / skipped / currently-testing commits during a bisect."""
+
+    name = "bisect"
+    invalidated_by = ChangeKind.REFS | ChangeKind.HEAD | ChangeKind.OPERATION
+
+    async def markers(
+        self, session: RepoSession, shas: Sequence[str]
+    ) -> Mapping[str, Sequence[Marker]]:
+        from .bisect import state
+
+        st = await state(session.git)
+        if not st.active:
+            return {}
+        out: dict[str, list[Marker]] = defaultdict(list)
+        if st.bad:
+            out[st.bad].append(Marker("bisect-bad", "bad", "bisect-bad", order=1))
+        for sha in st.good:
+            out[sha].append(Marker("bisect-good", "good", "bisect-good", order=1))
+        for sha in st.skipped:
+            out[sha].append(Marker("bisect-skip", "skip", "bisect-skip", order=1))
+        if st.first_bad:
+            out[st.first_bad].append(Marker("bisect-bad", "first bad", "bisect-bad", order=0))
+        elif st.current:
+            out[st.current].append(Marker("bisect-current", "▶ testing", "bisect-current", order=0))
+        wanted = set(shas)
+        return {k: v for k, v in out.items() if k in wanted}
+
+
 def default_providers() -> list[MarkerProvider]:
-    return [RefMarkers(), WorktreeMarkers(), PickedMarkers()]
+    return [RefMarkers(), WorktreeMarkers(), PickedMarkers(), BisectMarkers()]
 
 
 async def collect(

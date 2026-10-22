@@ -16,7 +16,10 @@ A terminal app that reproduces PyCharm's Git tooling (Commit tool window, Log wi
 | Worktrees | ✅ | ✗ | ✗ | ✗ | ✅ (full panel) |
 | Bisect / patch builder / custom commands | ✅ | ✗ | ✗ | ◐ | ✅ (M10) |
 
-## Step 0 — Repo setup (done except lockfile)
+## Status
+All ten milestones are implemented — see each `docs/milestones/M*.md` "As built" section for deviations from this plan.
+
+## Step 0 — Repo setup (done)
 - ✅ `lukebierbaum/gitpanel` created (private); local checkout at `~/gitpanel`, branch `main`.
 - **Deps managed with pixi**, manifest in `pyproject.toml` under `[tool.pixi.*]` so the package stays pip/pipx-installable:
   - `[project]` (hatchling build): name `gitpanel`, `requires-python >=3.11`, deps `textual`, `rich`; script `gitpanel = gitpanel.__main__:main`.

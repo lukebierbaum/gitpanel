@@ -97,6 +97,8 @@ async def _abort(env: ActionEnv) -> None:
     assert op is not None
     if op.kind is OpKind.BISECT:
         await env.session.git.run("bisect", "reset")
+        env.ui.notify("Bisect finished")
+        return
     else:
         await env.session.git.run(_OP_COMMAND[op.kind], "--abort")
     env.ui.notify(f"{op.kind} aborted")
