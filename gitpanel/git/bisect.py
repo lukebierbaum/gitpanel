@@ -78,7 +78,7 @@ async def reset(git: Git) -> None:
 
 async def run(git: Git, command: str) -> AsyncIterator[str]:
     """`git bisect run sh -c <command>`, streaming its output line by line."""
-    async for line in git.stream("bisect", "run", "sh", "-c", command, sep=b"\n"):
+    async for line in git.stream("bisect", "run", "sh", "-c", command, sep=b"\n", read_only=False):
         yield line.decode("utf-8", "replace")
 
 

@@ -34,7 +34,8 @@ gitpanel/
   __main__.py                 # CLI entry: gitpanel [PATH] [--cd-file FILE] [log|branches|commit|worktrees]
   config.py                   # load ~/.config/gitpanel/config.toml (+ opt-in per-repo .gitpanel.toml)
   git/
-    runner.py                 # Git, GitResult, GitError
+    runner.py                 # Git, GitResult, GitError (every call reports to console.CONSOLE)
+    console.py                # Console/ConsoleEntry: recorded commands + output for the Console window
     session.py                # RepoSession, Worktree, ChangeKind
     models.py                 # shared dataclasses (Commit, Ref, FileStatus, StashEntry, …)
     journal.py                # Journal, JournalEntry, HeadState

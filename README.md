@@ -24,7 +24,7 @@ pixi run demo /tmp/gp-demo      # build a demo repository
 pixi run start /tmp/gp-demo     # open it
 ```
 
-Press `?` anywhere for every action and its key, `ctrl+p` for the command palette, `alt+enter` for actions on the current selection. Tool windows: `1` Commit · `2` Log · `3` Worktrees · `4` Compare · `5` Shelf (`alt+0/9/8/5` also work where the terminal doesn't use them for its own tabs). In the hints, `^` means Ctrl. If your keyboard layout makes Alt type symbols (Alt+5 → `∞`, as Mac-style layouts do), gitpanel maps those back to the Alt shortcuts; `.` also opens the actions menu.
+Press `?` anywhere for every action and its key, `ctrl+p` for the command palette, `alt+enter` for actions on the current selection. Tool windows: `1` Commit · `2` Log · `3` Worktrees · `4` Compare · `5` Shelf · `6` Console (every git command gitpanel runs and git's output; `a` also shows read-only queries, `o` output on/off, `c` clear) (`alt+0/9/8/5` also work where the terminal doesn't use them for its own tabs). In the hints, `^` means Ctrl. If your keyboard layout makes Alt type symbols (Alt+5 → `∞`, as Mac-style layouts do), gitpanel maps those back to the Alt shortcuts; `.` also opens the actions menu.
 
 ### Commit tool window
 | Key | Action |

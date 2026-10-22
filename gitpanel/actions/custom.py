@@ -11,6 +11,7 @@ import shlex
 from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
+from ..git.console import CONSOLE
 from .context import Scope
 from .registry import Action, ActionEnv, ActionError
 
@@ -81,8 +82,12 @@ def compile_command(spec: Mapping[str, Any]) -> Action:
             values[str(p["name"])] = answer
         cmd = render(run_tpl, values)
         cwd = str(env.session.active.path)
+        entry = CONSOLE.start(
+            ["sh", "-c", cmd], env.session.active.path, read_only=read_only, kind="shell"
+        )
         if output == "terminal":
             code = await env.ui.run_in_terminal(["sh", "-c", cmd], env.session.active.path)
+            CONSOLE.finish(entry, code, "(ran in the terminal)")
             if code:
                 env.ui.notify(f"{label} exited with {code}", severity="warning")
             return
@@ -92,14 +97,18 @@ def compile_command(spec: Mapping[str, Any]) -> Action:
 
             async def lines() -> AsyncIterator[str]:
                 assert proc.stdout is not None
+                collected = []
                 async for raw in proc.stdout:
-                    yield raw.decode("utf-8", "replace").rstrip("\n")
-                await proc.wait()
+                    line = raw.decode("utf-8", "replace").rstrip("\n")
+                    collected.append(line)
+                    yield line
+                CONSOLE.finish(entry, await proc.wait(), "\n".join(collected))
 
             await env.ui.show_output(f"$ {cmd}", lines())
             return
         out = (await proc.stdout.read()).decode("utf-8", "replace")
         code = await proc.wait()
+        CONSOLE.finish(entry, code, out)
         if code:
             env.ui.notify(f"{label} failed ({code})", severity="error")
             env.ui.show_error(label, f"$ {cmd}\n{out}")

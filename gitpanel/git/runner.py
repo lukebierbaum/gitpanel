@@ -9,6 +9,8 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from .console import CONSOLE, MAX_OUTPUT
+
 BASE_CONFIG = (
     "-c",
     "color.ui=false",
@@ -103,24 +105,31 @@ class Git:
         check: bool = True,
         read_only: bool = False,
     ) -> GitResult:
-        proc = await asyncio.create_subprocess_exec(
-            self.git_exe,
-            *BASE_CONFIG,
-            *args,
-            cwd=self.cwd,
-            env=self._env(env, read_only),
-            stdin=asyncio.subprocess.PIPE if input is not None else asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        entry = CONSOLE.start(args, self.cwd, read_only=read_only, stdin=input)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.git_exe,
+                *BASE_CONFIG,
+                *args,
+                cwd=self.cwd,
+                env=self._env(env, read_only),
+                stdin=asyncio.subprocess.PIPE if input is not None else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as e:
+            CONSOLE.finish(entry, None, stderr=str(e))
+            raise
         try:
             out, err = await proc.communicate(input)
         except asyncio.CancelledError:
             if proc.returncode is None:
                 proc.kill()
                 await proc.wait()
+            CONSOLE.finish(entry, None, cancelled=True)
             raise
         result = GitResult(tuple(args), proc.returncode or 0, out, err.decode("utf-8", "replace"))
+        CONSOLE.finish(entry, result.returncode, result.text, result.stderr)
         if check and result.returncode != 0:
             raise GitError(result)
         return result
@@ -130,14 +139,18 @@ class Git:
         *args: str,
         sep: bytes = b"\0",
         env: Mapping[str, str] | None = None,
+        read_only: bool = True,
     ) -> AsyncIterator[bytes]:
         """Yield `sep`-separated records from a long-running git command."""
+        entry = CONSOLE.start(args, self.cwd, read_only=read_only)
+        captured: list[bytes] = []
+        size = 0
         proc = await asyncio.create_subprocess_exec(
             self.git_exe,
             *BASE_CONFIG,
             *args,
             cwd=self.cwd,
-            env=self._env(env, read_only=True),
+            env=self._env(env, read_only=read_only),
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -150,6 +163,9 @@ class Git:
                 chunk = await proc.stdout.read(1 << 16)
                 if not chunk:
                     break
+                if size < MAX_OUTPUT:
+                    captured.append(chunk)
+                size += len(chunk)
                 buf += chunk
                 *records, buf = buf.split(sep)
                 for rec in records:
@@ -157,14 +173,17 @@ class Git:
             if buf:
                 yield buf
             await proc.wait()
+            assert proc.stderr is not None
+            err = (await proc.stderr.read()).decode("utf-8", "replace")
+            out = b"".join(captured).decode("utf-8", "replace").replace("\0", "\n")
+            CONSOLE.finish(entry, proc.returncode, out, err)
             if proc.returncode:
-                assert proc.stderr is not None
-                err = (await proc.stderr.read()).decode("utf-8", "replace")
                 raise GitError(GitResult(tuple(args), proc.returncode, b"", err))
         finally:
             if proc.returncode is None:
                 proc.kill()
                 await proc.wait()
+                CONSOLE.finish(entry, None, cancelled=True)
 
     async def rev_parse(self, *args: str) -> str:
         res = await self.run("rev-parse", *args, read_only=True)

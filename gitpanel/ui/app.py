@@ -39,6 +39,7 @@ from .screens.annotate import AnnotateScreen
 from .screens.branches import BranchesPopup
 from .screens.commit import CommitView
 from .screens.compare import CompareView
+from .screens.console import ConsoleView
 from .screens.help import HelpScreen
 from .screens.history import HistoryScreen
 from .screens.journal import JournalScreen
@@ -53,7 +54,7 @@ from .widgets.diff_view import DiffView
 from .widgets.key_hints import KeyHints, pretty_key
 from .widgets.operation_banner import OperationBanner
 
-View = CommitView | LogView | WorktreesView | CompareView | ShelfView
+View = CommitView | LogView | WorktreesView | CompareView | ShelfView | ConsoleView
 
 
 class Header(Static):
@@ -71,7 +72,7 @@ class GitPanelApp(App[None]):
     #toolwindows { height: 1; background: $panel; }
     #toolwindows Tab { padding: 0 2; }
     """
-    VIEWS = ("commit", "log", "worktrees", "compare", "shelf")
+    VIEWS = ("commit", "log", "worktrees", "compare", "shelf", "console")
 
     def __init__(
         self,
@@ -107,6 +108,7 @@ class GitPanelApp(App[None]):
             Tab("3 Worktrees", id="tab-worktrees"),
             Tab("4 Compare", id="tab-compare"),
             Tab("5 Shelf", id="tab-shelf"),
+            Tab("6 Console", id="tab-console"),
             id="toolwindows",
         )
         with ContentSwitcher(initial="commit-view", id="views"):
@@ -115,6 +117,7 @@ class GitPanelApp(App[None]):
             yield WorktreesView()
             yield CompareView()
             yield ShelfView()
+            yield ConsoleView()
         yield KeyHints(id="hints")
 
     async def on_mount(self) -> None:
@@ -175,6 +178,7 @@ class GitPanelApp(App[None]):
             self.query_one(WorktreesView),
             self.query_one(CompareView),
             self.query_one(ShelfView),
+            self.query_one(ConsoleView),
         ]
 
     def _context_screen(self) -> Any | None:

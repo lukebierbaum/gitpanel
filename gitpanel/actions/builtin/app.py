@@ -116,6 +116,10 @@ async def _compare(env: ActionEnv) -> None:
     env.ui.open_screen("compare")
 
 
+async def _console(env: ActionEnv) -> None:
+    env.ui.open_screen("console")
+
+
 async def _shelf(env: ActionEnv) -> None:
     env.ui.open_screen("shelf")
 
@@ -132,6 +136,13 @@ def actions() -> list[Action]:
         Action("app.branches", "Branches…", _branches, key="b", group="Tool windows"),
         Action("app.show_worktrees", "Worktrees", _worktrees, key="3,alt+8", group="Tool windows"),
         Action("app.show_compare", "Compare branches", _compare, key="4", group="Tool windows"),
+        Action(
+            "app.show_console",
+            "Git Console (commands and output)",
+            _console,
+            key="6,alt+6",
+            group="Tool windows",
+        ),
         Action("app.show_shelf", "Shelf and Stashes", _shelf, key="5,alt+5", group="Tool windows"),
         Action(
             "app.worktrees",
