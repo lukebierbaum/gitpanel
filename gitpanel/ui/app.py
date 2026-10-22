@@ -30,18 +30,21 @@ from .dialogs import (
     TextDialog,
 )
 from .palette import RegistryCommands
+from .screens.annotate import AnnotateScreen
 from .screens.branches import BranchesPopup
 from .screens.commit import CommitView
 from .screens.compare import CompareView
+from .screens.history import HistoryScreen
 from .screens.log import LogView
 from .screens.rebase_editor import RebaseEditorScreen
 from .screens.resolver import ResolverScreen
+from .screens.shelf import ShelfView
 from .screens.worktrees import WorktreesView
 from .theme import DEFAULT_THEME, HULK_GREEN, THEMES
 from .widgets.key_hints import KeyHints, pretty_key
 from .widgets.operation_banner import OperationBanner
 
-View = CommitView | LogView | WorktreesView | CompareView
+View = CommitView | LogView | WorktreesView | CompareView | ShelfView
 
 
 class Header(Static):
@@ -59,7 +62,7 @@ class GitPanelApp(App[None]):
     #toolwindows { height: 1; background: $panel; }
     #toolwindows Tab { padding: 0 2; }
     """
-    VIEWS = ("commit", "log", "worktrees", "compare")
+    VIEWS = ("commit", "log", "worktrees", "compare", "shelf")
 
     def __init__(self, path: Path | str = ".", *, registry: Registry | None = None) -> None:
         super().__init__()
@@ -82,6 +85,7 @@ class GitPanelApp(App[None]):
             Tab("Log  ⌥9", id="tab-log"),
             Tab("Worktrees  ⌥8", id="tab-worktrees"),
             Tab("Compare", id="tab-compare"),
+            Tab("Shelf  ⌥5", id="tab-shelf"),
             id="toolwindows",
         )
         with ContentSwitcher(initial="commit-view", id="views"):
@@ -89,6 +93,7 @@ class GitPanelApp(App[None]):
             yield LogView()
             yield WorktreesView()
             yield CompareView()
+            yield ShelfView()
         yield KeyHints(id="hints")
 
     async def on_mount(self) -> None:
@@ -114,6 +119,7 @@ class GitPanelApp(App[None]):
             self.query_one(LogView),
             self.query_one(WorktreesView),
             self.query_one(CompareView),
+            self.query_one(ShelfView),
         ]
 
     def _context_screen(self) -> Any | None:
@@ -283,6 +289,18 @@ class GitPanelApp(App[None]):
         if name == "resolver":
             self.push_screen(ResolverScreen(str(kwargs["path"])))
             return
+        if name == "history":
+            self.push_screen(
+                HistoryScreen(
+                    str(kwargs["path"]), kwargs.get("start"), kwargs.get("end"), kwargs.get("rev")
+                )
+            )
+            return
+        if name == "annotate":
+            self.push_screen(
+                AnnotateScreen(str(kwargs["path"]), kwargs.get("rev"), kwargs.get("line"))
+            )
+            return
         if name == "rebase":
             self.push_screen(RebaseEditorScreen(kwargs.get("base"), list(kwargs["todo"])))
             return
@@ -292,8 +310,8 @@ class GitPanelApp(App[None]):
             return
         if name not in self.VIEWS:
             return
-        if isinstance(self.screen, BranchesPopup):
-            self.screen.dismiss()
+        while len(self.screen_stack) > 1:
+            self.pop_screen()  # back to the tool windows
         switcher = self.query_one(ContentSwitcher)
         if switcher.current == f"{name}-view":
             if kwargs:

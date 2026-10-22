@@ -29,7 +29,7 @@ def tree_paths(app, group: str) -> list[str]:
 def move_to(app, group: str, path: str | None = None) -> None:
     tree = app.query_one(FileTree)
     for node in tree.root.children:
-        if node.data == GroupNode(group):
+        if isinstance(node.data, GroupNode) and node.data.group == group:
             if path is None:
                 tree.move_cursor(node)
                 return

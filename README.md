@@ -2,7 +2,7 @@
 
 A PyCharm-style Git client for the terminal: commit tool window with hunk/line staging, log with branch graph, branches popup, worktrees, cherry-picking between branches, 3-pane conflict resolver, history/annotate, shelves, interactive rebase, and undo.
 
-**Status:** milestones 1–6 of 10 done (commit window, log with graph, branches/worktrees/remotes, cherry-picking, conflict resolver, interactive rebase). See [docs/ROADMAP.md](docs/ROADMAP.md).
+**Status:** milestones 1–7 of 10 done (commit window, log with graph, branches/worktrees/remotes, cherry-picking, conflict resolver, interactive rebase, history/annotate/shelf/stash/changelists). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Try it
 Requires [pixi](https://pixi.sh).
@@ -50,6 +50,15 @@ pixi run start /tmp/gp-demo     # open it
 | `b` → `ctrl+e` | Compare window: commits only in either branch, already-picked ones marked ✓ (`h` hides them, `x` swaps) |
 
 Commits whose change already exists on your branch are dimmed and tagged `✓ picked` in the Log.
+
+### History, annotate, shelf, stash, changelists
+| Key | Action |
+|---|---|
+| `alt+h` | file history (Commit window, Log, history) — or history of the selected lines in Annotate |
+| `alt+a` | annotate (git blame); in Annotate: `p` previous revision, `enter` show commit in Log, `v` select lines |
+| `alt+s` / `alt+t` | shelve the selected changes / stash all changes |
+| `alt+5` | Shelf window: shelves and stashes — `enter` unshelve / pop, `a` apply, `d` delete/drop, `B` branch from stash |
+| `f6` | move files to another changelist (new / rename / delete / set active via `alt+enter`) |
 
 ### Merge conflicts
 Conflicted files appear under **Merge Conflicts** in the Commit window and the banner offers Continue / Skip / Abort.

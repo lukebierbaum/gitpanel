@@ -3,10 +3,36 @@
 from __future__ import annotations
 
 from ..registry import Registry
-from . import app, branches, cherry_pick, commit, conflicts, log, rebase, remote, worktrees
+from . import (
+    app,
+    branches,
+    changelists,
+    cherry_pick,
+    commit,
+    conflicts,
+    files,
+    log,
+    rebase,
+    remote,
+    shelf,
+    worktrees,
+)
 
 
 def register_builtin(registry: Registry) -> Registry:
-    for module in (app, commit, conflicts, log, cherry_pick, rebase, branches, remote, worktrees):
+    for module in (
+        app,
+        commit,
+        changelists,
+        conflicts,
+        files,
+        shelf,
+        log,
+        cherry_pick,
+        rebase,
+        branches,
+        remote,
+        worktrees,
+    ):
         registry.register_all(module.actions())
     return registry

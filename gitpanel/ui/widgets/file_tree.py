@@ -13,6 +13,7 @@ from textual.widgets.tree import TreeNode
 
 from ...actions.context import FileGroup, FileRef
 from ...git import patch as P
+from ...git.changelists import Changelists
 from ...git.models import ChangeType, FileStatus, RepoStatus
 
 GROUPS: list[tuple[FileGroup, str]] = [
@@ -37,6 +38,11 @@ STATUS_STYLE = {
 @dataclass(frozen=True)
 class GroupNode:
     group: FileGroup
+    changelist: str | None = None  # for "unstaged" groups split by changelist
+
+
+def _key(g: GroupNode) -> str:
+    return g.group if g.changelist is None else f"cl:{g.changelist}"
 
 
 def _source(group: FileGroup) -> P.DiffSource:
@@ -114,21 +120,41 @@ class FileTree(Tree[FileRef | GroupNode]):
         self.show_root = False
         self.guide_depth = 2
         self.groups: dict[FileGroup, list[FileRef]] = {}
-        self._collapsed: set[FileGroup] = set()
+        self.changelists: Changelists | None = None
+        self._collapsed: set[str] = set()
 
-    def populate(self, st: RepoStatus) -> None:
+    def populate(self, st: RepoStatus, changelists: Changelists | None = None) -> None:
         prev = self.cursor_node.data if self.cursor_node else None
         prev_line = self.cursor_line
         self.groups = _group_files(st)
+        self.changelists = changelists
         self.clear()
         target: TreeNode[FileRef | GroupNode] | None = None
+        sections: list[tuple[GroupNode, str, list[FileRef]]] = []
         for group, title in GROUPS:
             files = self.groups[group]
-            if not files:
+            if group == "unstaged" and changelists is not None:
+                by_list = changelists.group(r.path for r in files)
+                for name in changelists.lists:
+                    members = [r for r in files if r.path in set(by_list.get(name, []))]
+                    if not members and name != changelists.active:
+                        continue
+                    marker = (
+                        "  (active)"
+                        if name == changelists.active and len(changelists.lists) > 1
+                        else ""
+                    )
+                    sections.append((GroupNode("unstaged", name), name + marker, members))
+                continue
+            if files:
+                sections.append((GroupNode(group), title, files))
+        for gnode, title, files in sections:
+            if not files and gnode.changelist is None:
                 continue
             label = Text.assemble((title, "bold"), (f"  {len(files)}", "dim"))
-            node = self.root.add(label, GroupNode(group), expand=group not in self._collapsed)
-            if prev == GroupNode(group):
+            key = gnode.group if gnode.changelist is None else f"cl:{gnode.changelist}"
+            node = self.root.add(label, gnode, expand=key not in self._collapsed)
+            if prev == gnode:
                 target = node
             for ref in files:
                 leaf = node.add_leaf(file_label(ref), ref)
@@ -148,8 +174,19 @@ class FileTree(Tree[FileRef | GroupNode]):
         if node is None or node.data is None:
             return []
         if isinstance(node.data, GroupNode):
-            return list(self.groups.get(node.data.group, []))
+            return [c.data for c in node.children if isinstance(c.data, FileRef)]
         return [node.data]
+
+    def focused_changelist(self) -> str | None:
+        node = self.cursor_node
+        if node is None:
+            return None
+        data = node.data
+        if isinstance(data, GroupNode):
+            return data.changelist
+        if isinstance(data, FileRef) and data.group == "unstaged" and self.changelists:
+            return self.changelists.list_for(data.path)
+        return None
 
     def focused_file(self) -> FileRef | None:
         node = self.cursor_node
@@ -162,7 +199,7 @@ class FileTree(Tree[FileRef | GroupNode]):
         if node.allow_expand and node.is_expanded:
             node.collapse()
             if isinstance(node.data, GroupNode):
-                self._collapsed.add(node.data.group)
+                self._collapsed.add(_key(node.data))
         elif node.parent is not None and node.parent is not self.root:
             self.move_cursor(node.parent)
 
@@ -173,7 +210,7 @@ class FileTree(Tree[FileRef | GroupNode]):
         if node.allow_expand and not node.is_expanded:
             node.expand()
             if isinstance(node.data, GroupNode):
-                self._collapsed.discard(node.data.group)
+                self._collapsed.discard(_key(node.data))
         elif node.children:
             self.move_cursor(node.children[0])
 
@@ -188,9 +225,9 @@ class FileTree(Tree[FileRef | GroupNode]):
     def on_tree_node_collapsed(self, event: Tree.NodeCollapsed) -> None:
         event.stop()
         if isinstance(event.node.data, GroupNode):
-            self._collapsed.add(event.node.data.group)
+            self._collapsed.add(_key(event.node.data))
 
     def on_tree_node_expanded(self, event: Tree.NodeExpanded) -> None:
         event.stop()
         if isinstance(event.node.data, GroupNode):
-            self._collapsed.discard(event.node.data.group)
+            self._collapsed.discard(_key(event.node.data))

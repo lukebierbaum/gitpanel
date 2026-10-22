@@ -46,6 +46,7 @@ class Action:
     destructive: bool = False
     reset_mode: ResetMode = "keep"
     confirm: str | None = None  # may use {placeholders}
+    silent_backup: bool = False  # destructive (backed up) but safe enough not to ask
     confirm_title: str | None = None
     paths: Callable[[SelectionContext], list[str] | None] | None = None
     show_in_palette: bool = True
@@ -118,7 +119,7 @@ class Dispatcher:
     async def dispatch(self, action: Action, ctx: SelectionContext) -> Any:
         if not action.applies(ctx):
             return None
-        if action.confirm or action.destructive:
+        if action.confirm or (action.destructive and not action.silent_backup):
             body = (action.confirm or "This cannot be undone outside gitpanel.").format_map(
                 _SafeDict(ctx.placeholders())
             )

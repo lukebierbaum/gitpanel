@@ -8,6 +8,7 @@ from typing import Literal
 from rich.segment import Segment
 from rich.style import Style
 from textual import events
+from textual.actions import SkipAction
 from textual.binding import Binding
 from textual.geometry import Size
 from textual.message import Message
@@ -337,6 +338,8 @@ class DiffView(ScrollView, can_focus=True):
         self.post_message(self.SelectionChanged(self))
 
     def action_clear_range(self) -> None:
+        if self.anchor is None:
+            raise SkipAction()
         if self.anchor is not None:
             self.anchor = None
             self.refresh()

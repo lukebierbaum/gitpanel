@@ -12,6 +12,7 @@ from textual.widgets import Button, Checkbox, Input, Label, TextArea
 from ...actions.context import FileRef, PatchSelection, Scope, SelectionContext
 from ...git import commit as C
 from ...git import patch as P
+from ...git.changelists import Changelists
 from ...git.status import status
 from ..widgets.diff_view import DiffView
 from ..widgets.file_tree import FileTree
@@ -43,6 +44,7 @@ class CommitView(Vertical):
         self._diff_cache: dict[tuple[str, str], list[P.FileDiff]] = {}
         self._history_pos = -1
         self._generation = 0
+        self._all_changed: tuple[str, ...] = ()
 
     @property
     def gp(self) -> GitPanelApp:
@@ -87,7 +89,11 @@ class CommitView(Vertical):
         self._generation += 1
         self._diff_cache.clear()
         st = await status(session.git)
-        self.query_one(FileTree).populate(st)
+        cl = Changelists.load(session.private_dir() / "changelists.json")
+        changed = [f.path for f in st.files if f.has_unstaged and not f.untracked]
+        cl.prune(changed)
+        self.query_one(FileTree).populate(st, cl)
+        self._all_changed = tuple(f.path for f in st.files)
         await self._show_focused_diff(keep_position=True)
 
     async def _load(self, ref: FileRef) -> list[P.FileDiff]:
@@ -158,7 +164,10 @@ class CommitView(Vertical):
 
     # -- context --------------------------------------------------------------
     def form(self) -> dict[str, Any]:
+        tree = self.query_one(FileTree)
         return {
+            "all_changed": self._all_changed,
+            "changelist": tree.focused_changelist() if self.screen.focused is tree else None,
             "message": self.query_one("#commit-msg", TextArea).text,
             "amend": self.query_one("#commit-amend", Checkbox).value,
             "signoff": self.query_one("#commit-signoff", Checkbox).value,

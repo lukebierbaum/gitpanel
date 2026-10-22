@@ -8,7 +8,7 @@ from ..context import Scope, SelectionContext
 from ..registry import Action, ActionEnv, ActionError
 from ..ui_protocol import Field
 
-SCREENS = frozenset({"log", "compare"})
+SCREENS = frozenset({"log", "compare", "history"})
 COMMIT = frozenset({Scope.COMMIT})
 
 
@@ -200,6 +200,7 @@ def actions() -> list[Action]:
             screens=SCREENS,
             mutating=True,
             destructive=True,
+            silent_backup=True,
             paths=lambda c: c.patch.paths if c.patch else None,
         ),
         Action(

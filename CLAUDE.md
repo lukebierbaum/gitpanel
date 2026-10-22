@@ -39,4 +39,5 @@ Add dependencies with `pixi add <pkg>` (conda-forge) or `pixi add --pypi <pkg>` 
 - Async everywhere in backend (`async def`), dataclasses (frozen where practical) for models, `StrEnum`/`Flag` for enums.
 - Type hints on all public functions; ruff config in `pyproject.toml` (line length 100).
 - Action ids: `<area>.<verb>` (`log.cherry_pick`, `worktree.add`); custom commands `custom.<id>`.
+- Widget bindings that only sometimes apply (e.g. `escape` clearing a selection) raise `textual.actions.SkipAction` when there's nothing to do, so the key reaches the screen.
 - Key defaults follow PyCharm where the terminal allows (e.g. `ctrl+k` commit); document deviations next to the action.

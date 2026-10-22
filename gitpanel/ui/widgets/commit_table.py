@@ -8,6 +8,7 @@ from datetime import datetime
 from rich.segment import Segment
 from rich.style import Style
 from textual import events
+from textual.actions import SkipAction
 from textual.binding import Binding
 from textual.geometry import Size
 from textual.message import Message
@@ -174,6 +175,8 @@ class CommitTable(ScrollView, can_focus=True):
         self.cursor += delta
 
     def action_clear_selection(self) -> None:
+        if self.anchor is None:
+            raise SkipAction()  # let escape reach the screen (e.g. to close it)
         if self.anchor is not None:
             self.anchor = None
             self.refresh()

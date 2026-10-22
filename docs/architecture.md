@@ -291,6 +291,7 @@ class Action:
     destructive: bool = False  # → backup snapshot + confirm
     reset_mode: ResetMode = "keep"  # how undo moves the current branch (commit uses "soft")
     confirm: str | None = None  # confirmation text, may use {placeholders}
+    silent_backup: bool = False  # destructive (backup snapshot) but safe enough not to ask
     confirm_title: str | None = None
     paths: Callable[[SelectionContext], list[str] | None] | None = None  # for destructive backups
     show_in_palette: bool = True
@@ -316,7 +317,7 @@ Rules:
 - Screens publish a fresh `SelectionContext` (immutable) whenever focus/selection changes; the app holds the latest one.
 - Key handling: `GitPanelApp.on_key` (keys bubble there before widget bindings run) intercepts keys on the base screen, or on any pushed screen that exposes `context(base)` (tool popups such as Branches); plain dialogs never receive registry keys, asks `registry.for_key(ctx, key)`, dispatches. Navigation keys (arrows, tab, enter in lists, text input) stay with widgets. The footer `KeyHints` widget lists `registry.available(ctx)` that have keys — no static Textual `BINDINGS` for git operations.
 - The context menu (`alt+enter`, "Actions…") and the command palette are `registry.available(ctx)`; popups show only screen-restricted actions in their hint bar.
-- Dispatcher order: `applies(ctx)` (screens + scopes + `when`) → `confirm` (if set or `destructive`) → `journal.mutation(label, destructive=…, paths=…, reset_mode=…)` if `mutating` → `run` → errors: `GitError` → `ui.notify(severity="error")` + `ui.show_error(details)`; `UndoRefused` → warning; `ActionError` → error notification.
+- Dispatcher order: `applies(ctx)` (screens + scopes + `when`) → `confirm` (if set, or `destructive` without `silent_backup`) → `journal.mutation(label, destructive=…, paths=…, reset_mode=…)` if `mutating` → `run` → errors: `GitError` → `ui.notify(severity="error")` + `ui.show_error(details)`; `UndoRefused` → warning; `ActionError` → error notification.
 - `Registry.for_key()` prefers screen-restricted actions over unrestricted ones, then non-global scopes over global, so one key (e.g. `space` = stage/unstage) can mean different things in different contexts via `when`.
 - Actions are plain async functions over `ActionEnv`; they are tested with a fake `Ui` and a real temp repo, no Textual.
 

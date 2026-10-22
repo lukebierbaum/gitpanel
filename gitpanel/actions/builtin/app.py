@@ -82,6 +82,10 @@ async def _worktrees(env: ActionEnv) -> None:
     env.ui.open_screen("worktrees")
 
 
+async def _shelf(env: ActionEnv) -> None:
+    env.ui.open_screen("shelf")
+
+
 async def _context_menu(env: ActionEnv) -> None:
     env.ui.post("context_menu")
 
@@ -93,6 +97,7 @@ def actions() -> list[Action]:
         Action("app.quit", "Quit", _quit, key="q", group="App"),
         Action("app.branches", "Branches…", _branches, key="b", group="Tool windows"),
         Action("app.show_worktrees", "Worktrees", _worktrees, key="alt+8", group="Tool windows"),
+        Action("app.show_shelf", "Shelf and Stashes", _shelf, key="alt+5", group="Tool windows"),
         Action(
             "app.worktrees",
             "Worktrees",
