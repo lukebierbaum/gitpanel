@@ -44,6 +44,7 @@ Press `?` anywhere for every action and its key, `ctrl+p` for the command palett
 ### Log (`2`)
 | Key | Action |
 |---|---|
+| (left panel) | **Branches**: highlight a branch to see only its history; `space` marks several to combine them, `esc` clears, *All branches* shows everything; `enter` checks out, `ctrl+e` compares, `alt+enter` for every branch action; `[` hides/shows the panel |
 | `/` | filter by message text/regex (branch, user, path, since fields alongside) |
 | `shift+↑↓` | select several commits |
 | `R` | edit commit message (any commit on the current branch) |
@@ -115,7 +116,7 @@ Conflicted files appear under **Merge Conflicts** in the Commit window and the b
 ### Branches, worktrees, remotes
 | Key | Action |
 |---|---|
-| `b` | Branches popup — type to search; `enter` checkout, `ctrl+n` new, `ctrl+k` push, `f2` rename, `ctrl+d` delete, `ctrl+f` favourite, `ctrl+w` new worktree, `alt+enter` all actions |
+| `b` | Branches popup — type to search; `enter` checkout (offers Smart / Force Checkout if local changes are in the way), `ctrl+n` new, `ctrl+k` push, `f2` rename, `ctrl+d` delete, `ctrl+f` favourite, `ctrl+w` new worktree, `alt+enter` all actions |
 | `3` / `w` | Worktrees window — `enter` switch, `n` new, `d` remove, `m` move, `l` lock, `s` shell, `y` copy path |
 | `F` / `ctrl+t` / `P` | fetch / update project (pull, merge or rebase) / push dialog |
 | `alt+enter` | actions for the current selection, anywhere |

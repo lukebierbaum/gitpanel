@@ -16,7 +16,7 @@ from .checkout import checkout_with_fallback, force_checkout
 from .network import with_auth_retry
 from .remote import push_flow
 
-SCREEN = frozenset({"branches"})
+SCREEN = frozenset({"branches", "log"})  # popup and the Log's branch panel
 BRANCH = frozenset({Scope.BRANCH})
 
 

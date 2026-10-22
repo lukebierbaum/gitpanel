@@ -7,15 +7,19 @@ from typing import TYPE_CHECKING, Any
 from rich.text import Text
 from textual import events, on, work
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Input, OptionList, Static
 from textual.widgets.option_list import Option
 
 from ...actions.context import FileRef, PatchSelection, Scope, SelectionContext
 from ...git import patch as P
+from ...git import refs as R
+from ...git import tags as T
 from ...git.graph import GraphBuilder
 from ...git.log import LogFilter, commit_details, containing_branches, load_page
 from ...git.markers import collect, default_providers
+from ..widgets.branch_panel import BranchPanel
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
 
@@ -28,10 +32,15 @@ STATUS_COLORS = {"A": "#6CCB3A", "M": "#B58CE8", "D": "#E5484D", "R": "#3FB8AF",
 
 class LogView(Vertical):
     name_id = "log"
+    BINDINGS = [
+        Binding("left_square_bracket", "toggle_branches", "Branches panel", show=False),
+    ]
 
     DEFAULT_CSS = """
     LogView { height: 1fr; }
     LogView #log-filters { height: 1; }
+    LogView #log-main { height: 1fr; }
+    LogView #log-right { width: 1fr; }
     LogView #log-filters Input { width: 1fr; margin-right: 1; }
     LogView #f-text { width: 2fr; }
     LogView CommitTable { height: 55%; border-bottom: tall $panel; }
@@ -62,13 +71,16 @@ class LogView(Vertical):
             yield Input(placeholder="User", id="f-user", compact=True)
             yield Input(placeholder="Paths", id="f-path", compact=True)
             yield Input(placeholder="Since (e.g. 2.weeks)", id="f-since", compact=True)
-        yield CommitTable(id="log-table")
-        with Horizontal(id="log-bottom"):
-            with Vertical(id="log-side"):
-                with VerticalScroll(id="log-details"):
-                    yield Static("", id="log-details-text")
-                yield OptionList(id="log-files", compact=True)
-            yield DiffView(id="log-diff")
+        with Horizontal(id="log-main"):
+            yield BranchPanel(id="log-branches")
+            with Vertical(id="log-right"):
+                yield CommitTable(id="log-table")
+                with Horizontal(id="log-bottom"):
+                    with Vertical(id="log-side"):
+                        with VerticalScroll(id="log-details"):
+                            yield Static("", id="log-details-text")
+                        yield OptionList(id="log-files", compact=True)
+                    yield DiffView(id="log-diff")
 
     stale = True
 
@@ -90,8 +102,38 @@ class LogView(Vertical):
             since=val("f-since") or None,
         )
 
+    def reload(self) -> None:
+        """Refresh the branches panel and the log (after repository changes)."""
+        self.reload_branches()
+        self.reload_log()
+
+    @work(exclusive=True, group="log-branches")
+    async def reload_branches(self) -> None:
+        session = self.gp.session
+        if session is None:
+            return
+        git = session.git
+        self.query_one(BranchPanel).populate(
+            await R.branches(git),
+            await T.tags(git),
+            R.Favorites(session.private_dir(shared=True) / "favorites.json").load(),
+            session.active.branch,
+            session.active.path.resolve(),
+        )
+
+    @on(BranchPanel.Changed)
+    def _branches_picked(self, event: BranchPanel.Changed) -> None:
+        self.query_one("#f-branch", Input).value = " ".join(event.filters)
+        self.reload_log()
+
+    def action_toggle_branches(self) -> None:
+        panel = self.query_one(BranchPanel)
+        panel.toggle_class("-hidden")
+        if panel.has_class("-hidden") and panel.has_focus:
+            self.query_one(CommitTable).focus()
+
     @work(exclusive=True, group="log-reload")
-    async def reload(self) -> None:
+    async def reload_log(self) -> None:
         session = self.gp.session
         if session is None:
             return
@@ -210,7 +252,7 @@ class LogView(Vertical):
     # -- filters ---------------------------------------------------------------------------
     @on(Input.Submitted)
     def _filter_submitted(self) -> None:
-        self.reload()
+        self.reload_log()
         self.query_one(CommitTable).focus()
 
     def on_key(self, event: events.Key) -> None:
@@ -228,7 +270,7 @@ class LogView(Vertical):
             event.stop()
             event.prevent_default()
             focused.value = ""
-            self.reload()
+            self.reload_log()
             self.query_one(CommitTable).focus()
 
     # -- context ------------------------------------------------------------------------
@@ -244,7 +286,12 @@ class LogView(Vertical):
             "form": {"picked": picked},
         }
         diff_view = self.query_one(DiffView)
-        if focused is table and table.rows:
+        panel = self.query_one(BranchPanel)
+        if focused is panel:
+            ref = panel.selected_ref()
+            if ref is not None:
+                kwargs.update(focus=Scope.BRANCH, refs=(ref,))
+        elif focused is table and table.rows:
             kwargs["focus"] = Scope.COMMIT
         elif focused is diff_view and diff_view.diff is not None and diff_view.source:
             sel = diff_view.selection()
@@ -265,8 +312,10 @@ class LogView(Vertical):
 
     def hint_extras(self) -> list[tuple[str, str]]:
         focused = self.screen.focused
+        if isinstance(focused, BranchPanel):
+            return [("space", "mark branch"), ("[", "hide panel")]
         if isinstance(focused, CommitTable):
-            return [("/", "filter"), ("shift+↑↓", "select")]
+            return [("/", "filter"), ("shift+↑↓", "select"), ("[", "branches")]
         if isinstance(focused, DiffView):
             return [("s", "side-by-side"), ("n/p", "next/prev change")]
         return []
@@ -277,4 +326,5 @@ class LogView(Vertical):
                 self.query_one(f"#{fid}", Input).value = ""
             self.query_one("#f-branch", Input).value = str(data["branch"])
             self.stale = False
-            self.reload()
+            self.reload_branches()
+            self.reload_log()
