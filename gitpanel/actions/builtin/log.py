@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from ...git import scripted_rebase as SR
 from ...git.log import commit_details, is_ancestor
-from ...git.reset_revert import checkout_detached, reset, revert
+from ...git.reset_revert import reset, revert
 from ...git.runner import GitError
 from ..context import Scope, SelectionContext
 from ..registry import Action, ActionEnv, ActionError
+from .checkout import checkout_with_fallback
 
 SCREEN = frozenset({"log"})
 COMMIT = frozenset({Scope.COMMIT})
@@ -23,7 +24,8 @@ def _some(ctx: SelectionContext) -> bool:
 
 async def _checkout(env: ActionEnv) -> None:
     c = env.ctx.commits[0]
-    await checkout_detached(env.session.git, c.sha)
+    if not await checkout_with_fallback(env, c.sha, f"checking out {c.short}", detach=True):
+        return
     if env.entry:
         env.entry.op = f"Checkout {c.short}"
     env.ui.notify(f"HEAD detached at {c.short}")

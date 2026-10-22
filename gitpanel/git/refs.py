@@ -7,9 +7,10 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from .models import Ref
-from .runner import Git, GitResult
+from .runner import Git, GitError, GitResult
 
 REF_FORMAT = (
     "%(refname)%00%(objectname)%00%(*objectname)%00%(upstream)%00%(upstream:track,nobracket)"
@@ -177,8 +178,42 @@ class Favorites:
 # --- branch operations --------------------------------------------------------------
 
 
-async def checkout(git: Git, branch: str) -> GitResult:
-    return await git.run("switch", "-q", branch)
+CheckoutMode = Literal["normal", "force"]
+
+
+async def checkout(
+    git: Git, target: str, *, mode: CheckoutMode = "normal", detach: bool = False
+) -> GitResult:
+    """Switch to `target`. `force` discards local changes and untracked files in the way."""
+    args = ["switch", "-q"]
+    if detach:
+        args.append("--detach")
+    if mode == "force":
+        args.append("--discard-changes")
+    return await git.run(*args, target)
+
+
+def is_local_changes_error(err: GitError) -> bool:
+    text = (err.result.stderr + err.result.text).lower()
+    return "would be overwritten by checkout" in text or "please commit your changes" in text
+
+
+async def smart_checkout(git: Git, target: str, *, detach: bool = False) -> GitResult:
+    """PyCharm's Smart Checkout: stash local changes, switch, then unstash them.
+
+    Returns the unstash result: not ok (with CONFLICT) when the changes clash with
+    the target, in which case the stash is kept so nothing is lost.
+    """
+    await git.run(
+        "stash", "push", "--include-untracked", "-q", "-m", f"gitpanel smart checkout to {target}"
+    )
+    try:
+        await checkout(git, target, detach=detach)
+    except GitError:
+        await git.run("stash", "pop", "-q", "--index", check=False)  # put things back as they were
+        raise
+    # plain pop (not --index): it reports clashes as ordinary merge conflicts
+    return await git.run("stash", "pop", check=False)
 
 
 async def checkout_remote(git: Git, remote_ref: str) -> str:

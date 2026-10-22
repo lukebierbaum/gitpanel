@@ -12,6 +12,7 @@ from ...git.runner import GitError
 from ..context import Scope, SelectionContext
 from ..registry import Action, ActionEnv, ActionError
 from ..ui_protocol import Field
+from .checkout import checkout_with_fallback, force_checkout
 from .network import with_auth_retry
 from .remote import push_flow
 
@@ -75,9 +76,9 @@ async def _checkout(env: ActionEnv) -> None:
     if ref is None:
         return
     if ref.is_tag:
-        await git.run("switch", "--detach", "-q", ref.name)
-        env.ui.notify(f"HEAD detached at {ref.short}")
-        _close(env)
+        if await checkout_with_fallback(env, ref.name, f"checking out {ref.short}", detach=True):
+            env.ui.notify(f"HEAD detached at {ref.short}")
+            _close(env)
         return
     if ref.is_remote:
         local = await R.checkout_remote(git, ref.name)
@@ -97,10 +98,21 @@ async def _checkout(env: ActionEnv) -> None:
             env.ui.notify(f"Switched to worktree {holder.path.name}")
             _close(env)
         return
-    await R.checkout(git, ref.short)
+    if not await checkout_with_fallback(env, ref.short, f"checking out {ref.short}"):
+        return
     if env.entry:
         env.entry.op = f"Checkout {ref.short}"
     env.ui.notify(f"Checked out {ref.short}")
+    _close(env)
+
+
+async def _force_checkout(env: ActionEnv) -> None:
+    ref = _ref(env.ctx)
+    target = ref.name if ref.is_tag else ref.short
+    await force_checkout(env, target, detach=ref.is_tag)
+    if env.entry:
+        env.entry.op = f"Force checkout {ref.short}"
+    env.ui.notify(f"Checked out {ref.short}, local changes discarded — z to undo")
     _close(env)
 
 
@@ -330,6 +342,13 @@ def actions() -> list[Action]:
 
     return [
         a("branch.checkout", "Checkout", _checkout, lambda c: _ref(c) is not None, key="enter"),
+        a(
+            "branch.force_checkout",
+            "Force Checkout (discard local changes)",
+            _force_checkout,
+            lambda c: (_local(c) and not _is_current(c)) or _tag(c),
+            confirm="Check out {branch} and discard all local changes? (backed up — z restores)",
+        ),
         a("branch.new_from", "New Branch from Here…", _new_branch, lambda c: True, key="ctrl+n"),
         a(
             "branch.checkout_rebase",

@@ -161,3 +161,61 @@ async def test_new_worktree_from_branch_and_log(env, tmp_path):
         SelectionContext(session, screen="log", focus=Scope.COMMIT, commits=(c,)),
     )
     assert any(w.branch is None for w in await session.worktrees())
+
+
+@pytest.fixture
+async def blocked(repo):
+    """main has a local edit to f.txt that `other` would overwrite."""
+    repo.commit({"f.txt": "base\n"}, "base")
+    repo.branch("other")
+    repo.checkout("other")
+    repo.commit({"f.txt": "other\n"}, "other")
+    repo.checkout("main")
+    repo.write("f.txt", "my local edit\n")
+    session = await RepoSession.open(repo.path)
+    ui = FakeUi()
+    return repo, session, ui, Dispatcher(register_builtin(Registry()), ui)
+
+
+async def test_checkout_blocked_then_force_and_undo(blocked):
+    repo, session, ui, d = blocked
+    ui.choose_answers = ["force"]
+    await d.dispatch_id("branch.checkout", await bctx(session, "other"))
+    assert repo.git("branch", "--show-current").strip() == "other"
+    assert repo.read("f.txt") == "other\n"
+    await session.refresh_active()
+    await d.dispatch_id("app.undo", SelectionContext(session))
+    assert repo.git("branch", "--show-current").strip() == "main"
+    assert repo.read("f.txt") == "my local edit\n"
+
+
+async def test_checkout_blocked_then_smart_conflicts_keep_changes(blocked):
+    repo, session, ui, d = blocked
+    ui.choose_answers = ["smart"]
+    await d.dispatch_id("branch.checkout", await bctx(session, "other"))
+    assert repo.git("branch", "--show-current").strip() == "other"
+    assert any("conflict" in m for _, m in ui.notifications)
+    assert "my local edit" in repo.read("f.txt")  # conflict markers include our change
+    assert repo.git("stash", "list").strip()  # kept safe in the stash
+
+
+async def test_smart_checkout_carries_non_conflicting_changes(repo):
+    repo.commit({"f.txt": "base\n", "g.txt": "g\n"}, "base")
+    repo.branch("other")
+    repo.checkout("other")
+    repo.commit({"f.txt": "other\n"}, "other")
+    repo.checkout("main")
+    repo.commit({"f.txt": "main\n"}, "main moves f")
+    repo.write("f.txt", "main\nplus local\n")
+    session = await RepoSession.open(repo.path)
+    ui = FakeUi(choose_answers=["cancel"])
+    d = Dispatcher(register_builtin(Registry()), ui)
+    await d.dispatch_id("branch.checkout", await bctx(session, "other"))
+    assert repo.git("branch", "--show-current").strip() == "main"  # cancelled: nothing moved
+
+
+async def test_force_checkout_action(blocked):
+    repo, session, ui, d = blocked
+    await d.dispatch_id("branch.force_checkout", await bctx(session, "other"))
+    assert repo.git("branch", "--show-current").strip() == "other"
+    assert ui.confirms and "discard" in ui.confirms[-1]
