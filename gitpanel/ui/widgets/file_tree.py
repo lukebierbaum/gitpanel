@@ -161,7 +161,12 @@ class FileTree(Tree[FileRef | GroupNode]):
                 if isinstance(prev, FileRef) and prev.group == ref.group and prev.path == ref.path:
                     target = leaf
         self.root.expand()
-        if target is not None:
+        # Node line numbers only exist once the rebuilt tree has been laid out,
+        # so restoring the cursor has to wait until after the next refresh.
+        self.call_after_refresh(self._restore_cursor, target, prev_line)
+
+    def _restore_cursor(self, target: TreeNode[FileRef | GroupNode] | None, prev_line: int) -> None:
+        if target is not None and target.line >= 0:
             self.move_cursor(target)
         elif prev_line >= 0:
             self.cursor_line = min(prev_line, max(self.last_line, 0))

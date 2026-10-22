@@ -160,3 +160,39 @@ async def test_not_a_repo(tmp_path):
     async with app.run_test() as pilot:
         await pilot.pause()
     assert app.startup_error and "not a git repository" in app.startup_error
+
+
+async def test_staging_a_hunk_keeps_the_file_in_the_diff_pane(repo):
+    base = "".join(f"line {i}\n" for i in range(60))
+    repo.commit({"app.py": base})
+    repo.write(
+        "app.py",
+        base.replace("line 3\n", "X3\n")
+        .replace("line 30\n", "X30\n")
+        .replace("line 55\n", "X55\n"),
+    )
+    app = GitPanelApp(repo.path)
+    async with app.run_test(size=(140, 40)) as pilot:
+        await settle(pilot, app)
+        move_to(app, "unstaged", "app.py")
+        await settle(pilot, app)
+        view = app.query_one("#diff", DiffView)
+        view.focus()
+        await pilot.press("n")  # second hunk
+        await settle(pilot, app)
+        await pilot.press("space")
+        await settle(pilot, app)
+        tree = app.query_one(FileTree)
+        node = tree.cursor_node.data
+        assert node.path == "app.py" and node.group == "unstaged"
+        assert view.diff is not None and view.diff.path == "app.py"
+        assert len(view.diff.hunks) == 2  # the staged hunk left, the other two remain
+        assert app.focused is view
+        # unstaging from the Staged group behaves the same way
+        move_to(app, "staged", "app.py")
+        await settle(pilot, app)
+        view.focus()
+        await pilot.press("space")
+        await settle(pilot, app)
+        assert tree.cursor_node.data.group in ("unstaged", "staged")
+        assert repo.git("diff", "--cached").strip() == ""

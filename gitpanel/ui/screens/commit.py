@@ -96,9 +96,9 @@ class CommitView(Vertical):
         cl = Changelists.load(session.private_dir() / "changelists.json")
         changed = [f.path for f in st.files if f.has_unstaged and not f.untracked]
         cl.prune(changed)
-        self.query_one(FileTree).populate(st, cl)
         self._all_changed = tuple(f.path for f in st.files)
-        await self._show_focused_diff(keep_position=True)
+        # populate() restores the cursor and then posts FocusedChanged, which shows the diff
+        self.query_one(FileTree).populate(st, cl)
 
     async def _load(self, ref: FileRef) -> list[P.FileDiff]:
         key = (ref.group, ref.path)
@@ -162,7 +162,8 @@ class CommitView(Vertical):
 
     @on(FileTree.FocusedChanged)
     async def _focused_changed(self) -> None:
-        await self._show_focused_diff()
+        # same file as before (e.g. after staging a hunk) → stay where you were in its diff
+        await self._show_focused_diff(keep_position=True)
         self.gp.refresh_hints()
 
     @on(DiffView.SelectionChanged)
