@@ -139,8 +139,55 @@ class BisectMarkers:
         return {k: v for k, v in out.items() if k in wanted}
 
 
+class SyncMarkers:
+    """Which commits exist only locally (not pushed) or only on a remote (not pulled)."""
+
+    name = "sync"
+    invalidated_by = ChangeKind.REFS | ChangeKind.HEAD
+    LIMIT = 20000
+
+    async def markers(
+        self, session: RepoSession, shas: Sequence[str]
+    ) -> Mapping[str, Sequence[Marker]]:
+        git = session.git
+        remotes = await git.run(
+            "for-each-ref", "--count=1", "--format=x", "refs/remotes", read_only=True
+        )
+        if not remotes.text.strip():
+            return {}  # no remotes: everything is local, labels would just be noise
+        local = await git.run(
+            "rev-list",
+            f"--max-count={self.LIMIT}",
+            "HEAD",
+            "--branches",
+            "--not",
+            "--remotes",
+            check=False,
+            read_only=True,
+        )
+        incoming = await git.run(
+            "rev-list",
+            f"--max-count={self.LIMIT}",
+            "--remotes",
+            "--not",
+            "HEAD",
+            "--branches",
+            check=False,
+            read_only=True,
+        )
+        local_only = set(local.text.split())
+        remote_only = set(incoming.text.split())
+        out: dict[str, list[Marker]] = {}
+        for sha in shas:
+            if sha in local_only:
+                out[sha] = [Marker("unpushed", "↑ not pushed", "unpushed", order=60)]
+            elif sha in remote_only:
+                out[sha] = [Marker("incoming", "↓ remote only", "incoming", order=60)]
+        return out
+
+
 def default_providers() -> list[MarkerProvider]:
-    return [RefMarkers(), WorktreeMarkers(), PickedMarkers(), BisectMarkers()]
+    return [RefMarkers(), WorktreeMarkers(), SyncMarkers(), PickedMarkers(), BisectMarkers()]
 
 
 async def collect(

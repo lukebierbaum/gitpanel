@@ -17,7 +17,14 @@ from ...git import patch as P
 from ...git import refs as R
 from ...git import tags as T
 from ...git.graph import GraphBuilder
-from ...git.log import LogFilter, commit_details, containing_branches, load_page
+from ...git.log import (
+    LogFilter,
+    commit_details,
+    containing_branches,
+    containing_remote_branches,
+    has_remotes,
+    load_page,
+)
 from ...git.markers import collect, default_providers
 from ..widgets.branch_panel import BranchPanel
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
@@ -58,7 +65,8 @@ class LogView(Vertical):
         self.filter = LogFilter()
         self._loaded = 0
         self._diffs: list[P.FileDiff] = []
-        self._detail_sha: str | None = None
+        self._detail_sha: str | None = None  # commit the details pane is (being) loaded for
+        self._shown_sha: str | None = None  # commit whose details finished rendering
 
     @property
     def gp(self) -> GitPanelApp:
@@ -153,6 +161,7 @@ class LogView(Vertical):
             r.markers = markers.get(r.commit.sha, [])
         table.set_rows(rows, keep_sha=keep, has_more=len(commits) == PAGE)
         self._detail_sha = None
+        self._shown_sha = None
         self.show_details()
 
     @on(CommitTable.NeedMore)
@@ -192,16 +201,19 @@ class LogView(Vertical):
             files.clear_options()
             diff_view.set_diff(None, None)
             self._detail_sha = None
+            self._shown_sha = None
             return
         if len(selected) > 1:
             text.update(f"{len(selected)} commits selected")
             files.clear_options()
             diff_view.set_diff(None, None, message="Select a single commit to see its changes")
             self._detail_sha = None
+            self._shown_sha = None
             return
         row = selected[0]
         sha = row.commit.sha
-        if sha == self._detail_sha:
+        # a cancelled load may have set _detail_sha without finishing: compare with what's shown
+        if sha == self._shown_sha and sha == self._detail_sha:
             return
         self._detail_sha = sha
         git = session.git
@@ -236,11 +248,29 @@ class LogView(Vertical):
         else:
             diff_view.set_diff(None, None, message="No file changes (merge or empty commit)")
         branches = await containing_branches(git, sha)
-        if self._detail_sha == sha and branches:
-            t.append("in: " + ", ".join(branches[:12]), style="dim")
-            if len(branches) > 12:
-                t.append(f" (+{len(branches) - 12})", style="dim")
-            text.update(t)
+        remote_has = await containing_remote_branches(git, sha)
+        if self._detail_sha != sha:
+            return
+        if await has_remotes(git):
+            if remote_has:
+                t.append("✓ pushed: ", style="#6CCB3A")
+                t.append(
+                    ", ".join(remote_has[:6])
+                    + (f" (+{len(remote_has) - 6})" if len(remote_has) > 6 else "")
+                    + "\n",
+                    style="dim",
+                )
+            else:
+                t.append("↑ not pushed to any remote\n", style="bold #E3B23C")
+        local_branches = [b for b in branches if b not in remote_has]
+        if local_branches:
+            t.append("in: " + ", ".join(local_branches[:12]), style="dim")
+            if len(local_branches) > 12:
+                t.append(f" (+{len(local_branches) - 12})", style="dim")
+        elif not remote_has:
+            t.append("↓ not on any local branch (remote only)", style="#A66BE0")
+        text.update(t)
+        self._shown_sha = sha
 
     @on(OptionList.OptionHighlighted, "#log-files")
     def _file_highlighted(self, event: OptionList.OptionHighlighted) -> None:

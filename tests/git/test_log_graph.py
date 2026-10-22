@@ -99,3 +99,29 @@ async def test_markers(repo):
     assert any(k == "worktree" for k, _ in head_labels)
     first_labels = [(m.kind, m.label) for m in marks[first]]
     assert ("remote", "origin/main") in first_labels and ("tag", "v1") in first_labels
+
+
+async def test_sync_markers_local_and_remote_only(repo, tmp_path):
+    import subprocess
+
+    from gitpanel.git.markers import SyncMarkers
+
+    session = await RepoSession.open(repo.path)
+    no_remote = await SyncMarkers().markers(session, [repo.head()])
+    assert no_remote == {}  # no remotes → no labels
+    origin = repo.bare_remote()
+    repo.git("push", "-q", "-u", "origin", "main")
+    pushed = repo.head()
+    unpushed = repo.commit({"l.txt": "l\n"}, "local only")
+    other = tmp_path / "other"
+    subprocess.run(["git", "clone", "-q", str(origin), str(other)], check=True)
+    subprocess.run(
+        ["git", "-C", str(other), "commit", "-q", "--allow-empty", "-m", "theirs"], check=True
+    )
+    subprocess.run(["git", "-C", str(other), "push", "-q"], check=True)
+    repo.git("fetch", "-q")
+    incoming = repo.git("rev-parse", "origin/main").strip()
+    marks = await SyncMarkers().markers(session, [pushed, unpushed, incoming])
+    assert pushed not in marks
+    assert marks[unpushed][0].kind == "unpushed"
+    assert marks[incoming][0].kind == "incoming"

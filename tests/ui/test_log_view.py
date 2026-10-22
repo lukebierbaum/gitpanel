@@ -50,3 +50,25 @@ async def test_log_filter(repo):
         await settle(pilot, app)
         table = app.query_one(CommitTable)
         assert [r.commit.subject for r in table.rows] == ["fix: other"]
+
+
+async def test_log_shows_pushed_state(repo):
+    repo.bare_remote()
+    repo.git("push", "-q", "-u", "origin", "main")
+    repo.commit({"x.txt": "x\n"}, "not pushed yet")
+    app = GitPanelApp(repo.path)
+    async with app.run_test(size=(170, 45)) as pilot:
+        await settle(pilot, app)
+        await pilot.press("2")
+        await settle(pilot, app)
+        table = app.query_one("#log-table", CommitTable)
+        top = table.rows[0]
+        assert top.commit.subject == "not pushed yet"
+        assert any(m.kind == "unpushed" for m in top.markers)
+        assert not any(m.kind == "unpushed" for m in table.rows[1].markers)
+        details = str(app.query_one("#log-details-text").render())
+        assert "not pushed to any remote" in details
+        table.cursor = 1
+        await settle(pilot, app)
+        details = str(app.query_one("#log-details-text").render())
+        assert "pushed: origin/main" in details

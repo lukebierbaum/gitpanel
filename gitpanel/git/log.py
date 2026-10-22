@@ -112,6 +112,25 @@ async def containing_branches(git: Git, sha: str, limit: int = 50) -> list[str]:
     return names[:limit]
 
 
+async def containing_remote_branches(git: Git, sha: str, limit: int = 50) -> list[str]:
+    res = await git.run(
+        "for-each-ref",
+        "--contains",
+        sha,
+        "--format=%(refname:short)",
+        "refs/remotes",
+        check=False,
+        read_only=True,
+    )
+    names = [n for n in res.text.splitlines() if n and not n.endswith("/HEAD")]
+    return names[:limit]
+
+
+async def has_remotes(git: Git) -> bool:
+    res = await git.run("remote", read_only=True, check=False)
+    return bool(res.text.strip())
+
+
 async def is_ancestor(git: Git, a: str, b: str) -> bool:
     res = await git.run("merge-base", "--is-ancestor", a, b, check=False, read_only=True)
     return res.ok

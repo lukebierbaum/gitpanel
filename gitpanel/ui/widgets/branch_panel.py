@@ -80,7 +80,12 @@ class BranchPanel(Tree[PanelItem]):
         current: str | None,
         active: Path,
     ) -> None:
-        self._data = {"favorites": favorites, "current": current, "active": active}
+        self._data = {
+            "favorites": favorites,
+            "current": current,
+            "active": active,
+            "has_remotes": any(b.is_remote for b in branches),
+        }
         prev = self.cursor_node.data.key if self.cursor_node and self.cursor_node.data else None
         self.clear()
         known = {b.name for b in branches} | {t.name for t in tags} | {"head"}
@@ -172,6 +177,11 @@ class BranchPanel(Tree[PanelItem]):
                 t.append(" ⎇", style="#3FB8AF")
             if ref.ahead or ref.behind:
                 t.append(f" ↑{ref.ahead}↓{ref.behind}", style="dim")
+            if ref.is_local and self._data.get("has_remotes"):
+                if ref.gone:
+                    t.append(" upstream gone", style="dim italic")
+                elif ref.upstream is None:
+                    t.append(" local", style="#E3B23C")  # never pushed / no upstream
         return t
 
     def _restore(self, prev: str | None) -> None:
