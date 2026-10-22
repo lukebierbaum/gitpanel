@@ -162,8 +162,9 @@ class BranchPanel(Tree[PanelItem]):
         marked = ref.name in self.marked
         is_current = ref.name == self._data.get("current")
         t.append("▣ " if marked else "  ", style=f"bold {GREEN}")
-        t.append("★" if ref.name in self._data.get("favorites", set()) else " ", style="#E3B23C")
-        t.append("●" if is_current else " ", style=GREEN)
+        # a space after each symbol: fonts often draw ★ ● wider than one cell
+        t.append("★ " if ref.name in self._data.get("favorites", set()) else "  ", style="#E3B23C")
+        t.append("● " if is_current else "  ", style=GREEN)
         t.append(ref.short.removeprefix(strip), style=f"bold {GREEN}" if is_current else "")
         if isinstance(ref, BranchRef):
             wt = ref.worktree

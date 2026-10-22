@@ -219,7 +219,8 @@ class CommitTable(ScrollView, can_focus=True):
             if ch in "●◆◉":
                 st += Style(bold=True)
             segs.append(Segment(ch, st))
-        segs.append(Segment(" " * (graph_w - row.graph.width + 1), base))
+        # two spaces: fonts often draw ● ◆ ◉ wider than one cell, so give them room
+        segs.append(Segment(" " * (graph_w - row.graph.width + 2), base))
 
         right_w = AUTHOR_W + DATE_W + 2
         subject_w = max(width - graph_w - 1 - right_w, 10)
