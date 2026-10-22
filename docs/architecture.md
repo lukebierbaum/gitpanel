@@ -75,21 +75,26 @@ class GitResult:
     stderr: str
 
     @property
-    def text(self) -> str: ...            # stdout decoded utf-8 (surrogateescape)
+    def text(self) -> str: ...  # stdout decoded utf-8 (surrogateescape)
+
 
 class GitError(Exception):
-    result: GitResult                     # message = first stderr line
+    result: GitResult  # message = first stderr line
+
 
 class Git:
     def __init__(self, cwd: Path, *, git_exe: str = "git") -> None: ...
     async def run(
-        self, *args: str,
+        self,
+        *args: str,
         input: bytes | None = None,
         env: Mapping[str, str] | None = None,
         check: bool = True,
-        read_only: bool = False,          # sets GIT_OPTIONAL_LOCKS=0
+        read_only: bool = False,  # sets GIT_OPTIONAL_LOCKS=0
     ) -> GitResult: ...
-    async def stream(self, *args: str, sep: bytes = b"\0") -> AsyncIterator[bytes]: ...  # log paging
+    async def stream(
+        self, *args: str, sep: bytes = b"\0"
+    ) -> AsyncIterator[bytes]: ...  # log paging
     async def rev_parse(self, *args: str) -> str: ...
 ```
 
@@ -103,33 +108,42 @@ Rules:
 
 ```python
 class ChangeKind(Flag):
-    INDEX = auto(); WORKTREE = auto(); HEAD = auto(); REFS = auto()
-    STASH = auto(); CONFIG = auto(); OPERATION = auto(); WORKTREES = auto()
+    INDEX = auto()
+    WORKTREE = auto()
+    HEAD = auto()
+    REFS = auto()
+    STASH = auto()
+    CONFIG = auto()
+    OPERATION = auto()
+    WORKTREES = auto()
     ALL = INDEX | WORKTREE | HEAD | REFS | STASH | CONFIG | OPERATION | WORKTREES
+
 
 @dataclass(frozen=True)
 class Worktree:
     path: Path
-    head: str | None                  # sha; None for unborn
-    branch: str | None                # full ref, None if detached
+    head: str | None  # sha; None for unborn
+    branch: str | None  # full ref, None if detached
     is_main: bool
-    locked: str | None                # reason ("" if locked without reason)
+    locked: str | None  # reason ("" if locked without reason)
     prunable: str | None
 
+
 class RepoSession:
-    common_dir: Path                  # git rev-parse --git-common-dir
+    common_dir: Path  # git rev-parse --git-common-dir
     active: Worktree
-    git: Git                          # bound to active.path
-    journal: Journal                  # per active worktree
-    lock: asyncio.Lock                # serialises mutations
+    git: Git  # bound to active.path
+    journal: Journal  # per active worktree
+    lock: asyncio.Lock  # serialises mutations
 
     @classmethod
     async def open(cls, path: Path) -> RepoSession: ...
     async def worktrees(self) -> list[Worktree]: ...
-    async def switch(self, path: Path) -> None: ...      # re-binds git/journal, emits ChangeKind.ALL
+    async def switch(self, path: Path) -> None: ...  # re-binds git/journal, emits ChangeKind.ALL
     def subscribe(self, cb: Callable[[ChangeKind], None]) -> Callable[[], None]: ...
     def emit(self, kinds: ChangeKind) -> None: ...
-    def private_dir(self, *, shared: bool = False) -> Path: ...
+    def private_dir(self, *, shared: bool = False) -> Path:
+        ...
         # shared=False → <git-dir>/gitpanel   (per worktree: journal, messages)
         # shared=True  → <common-dir>/gitpanel (repo-wide: shelf, changelists, favourites)
 ```
@@ -141,29 +155,34 @@ External change detection: a watcher task polls mtimes of `index`, `HEAD`, `pack
 ```python
 @dataclass(frozen=True)
 class HeadState:
-    ref: str | None                   # "refs/heads/x" when symbolic
+    ref: str | None  # "refs/heads/x" when symbolic
     sha: str | None
+
 
 @dataclass
 class JournalEntry:
     id: int
-    op: str                           # human label, e.g. "Cherry-pick 3 commits"
+    op: str  # human label, e.g. "Cherry-pick 3 commits"
     time: datetime
     head_before: HeadState
     head_after: HeadState
-    refs_before: dict[str, str | None]    # only refs that changed; None = didn't exist
+    refs_before: dict[str, str | None]  # only refs that changed; None = didn't exist
     refs_after: dict[str, str | None]
-    backup: str | None                # refs/gitpanel/backup/<id> (worktree+index snapshot) or None
-    paths: list[str] | None           # paths a destructive op touched (None = whole tree)
+    backup: str | None  # refs/gitpanel/backup/<id> (worktree+index snapshot) or None
+    paths: list[str] | None  # paths a destructive op touched (None = whole tree)
     undone: bool = False
 
-class UndoRefused(Exception): reason: str
+
+class UndoRefused(Exception):
+    reason: str
+
 
 class Journal:
     @asynccontextmanager
-    async def mutation(self, op: str, *, destructive: bool = False,
-                       paths: Sequence[str] | None = None) -> AsyncIterator[JournalEntry]: ...
-    async def undo(self) -> JournalEntry: ...       # raises UndoRefused
+    async def mutation(
+        self, op: str, *, destructive: bool = False, paths: Sequence[str] | None = None
+    ) -> AsyncIterator[JournalEntry]: ...
+    async def undo(self) -> JournalEntry: ...  # raises UndoRefused
     async def redo(self) -> JournalEntry: ...
     def entries(self, limit: int = 100) -> list[JournalEntry]: ...
     async def prune(self, keep: int, max_age: timedelta) -> None: ...
@@ -181,30 +200,45 @@ Semantics:
 
 ```python
 class Scope(StrEnum):
-    GLOBAL = "global"; COMMIT = "commit"; BRANCH = "branch"; REF = "ref"; FILE = "file"
-    HUNK = "hunk"; WORKTREE = "worktree"; STASH = "stash"; SHELF = "shelf"; CONFLICT = "conflict"
+    GLOBAL = "global"
+    COMMIT = "commit"
+    BRANCH = "branch"
+    REF = "ref"
+    FILE = "file"
+    HUNK = "hunk"
+    WORKTREE = "worktree"
+    STASH = "stash"
+    SHELF = "shelf"
+    CONFLICT = "conflict"
+
 
 @dataclass(frozen=True)
 class SelectionContext:
     session: RepoSession
-    screen: str                              # "commit", "log", "branches", …
-    focus: Scope                             # what the focused widget is about
+    screen: str  # "commit", "log", "branches", …
+    focus: Scope  # what the focused widget is about
     commits: tuple[Commit, ...] = ()
     refs: tuple[Ref, ...] = ()
-    files: tuple[FileRef, ...] = ()          # path + DiffSource
-    selection: Selection | None = None       # hunk/line selection (patch.py)
+    files: tuple[FileRef, ...] = ()  # path + DiffSource
+    selection: Selection | None = None  # hunk/line selection (patch.py)
     worktree: Worktree | None = None
     stash: StashEntry | None = None
     operation: OperationState | None = None
 
+
 class Ui(Protocol):
     async def confirm(self, title: str, body: str = "", *, danger: bool = False) -> bool: ...
-    async def prompt(self, title: str, *, default: str = "", placeholder: str = "") -> str | None: ...
+    async def prompt(
+        self, title: str, *, default: str = "", placeholder: str = ""
+    ) -> str | None: ...
     async def choose(self, title: str, options: Sequence[tuple[str, str]]) -> str | None: ...
-    def notify(self, message: str, *, severity: Literal["info", "warning", "error"] = "info") -> None: ...
+    def notify(
+        self, message: str, *, severity: Literal["info", "warning", "error"] = "info"
+    ) -> None: ...
     async def show_output(self, title: str, stream: AsyncIterator[str]) -> int: ...
-    async def suspend(self, argv: Sequence[str], cwd: Path) -> int: ...   # run in real terminal
+    async def suspend(self, argv: Sequence[str], cwd: Path) -> int: ...  # run in real terminal
     def open_screen(self, name: str, **kwargs: Any) -> None: ...
+
 
 @dataclass(frozen=True)
 class ActionEnv:
@@ -212,25 +246,28 @@ class ActionEnv:
     ui: Ui
     session: RepoSession
 
+
 @dataclass(frozen=True)
 class Action:
-    id: str                                  # "commit.amend", "log.cherry_pick", "custom.open-pr"
-    label: str                               # palette / menu text
+    id: str  # "commit.amend", "log.cherry_pick", "custom.open-pr"
+    label: str  # palette / menu text
     run: Callable[[ActionEnv], Awaitable[None]]
-    scopes: frozenset[Scope]                 # where it applies
+    scopes: frozenset[Scope]  # where it applies
     when: Callable[[SelectionContext], bool] = lambda ctx: True
-    key: str | None = None                   # default binding (Textual key syntax)
-    group: str = ""                          # context-menu section
-    mutating: bool = False                   # dispatcher wraps in journal.mutation(label)
-    destructive: bool = False                # → backup snapshot + confirm
-    confirm: str | None = None               # confirmation text, may use {placeholders}
+    key: str | None = None  # default binding (Textual key syntax)
+    group: str = ""  # context-menu section
+    mutating: bool = False  # dispatcher wraps in journal.mutation(label)
+    destructive: bool = False  # → backup snapshot + confirm
+    confirm: str | None = None  # confirmation text, may use {placeholders}
+
 
 class Registry:
-    def register(self, action: Action) -> None: ...      # duplicate id → error
+    def register(self, action: Action) -> None: ...  # duplicate id → error
     def get(self, action_id: str) -> Action: ...
     def available(self, ctx: SelectionContext) -> list[Action]: ...
     def for_key(self, ctx: SelectionContext, key: str) -> Action | None: ...
-    def rebind(self, overrides: Mapping[str, str | None]) -> None: ...   # [keys] in config
+    def rebind(self, overrides: Mapping[str, str | None]) -> None: ...  # [keys] in config
+
 
 class Dispatcher:
     async def dispatch(self, action: Action, env: ActionEnv) -> None: ...
@@ -309,17 +346,23 @@ Usage map:
 
 ```python
 class OpKind(StrEnum):
-    REBASE = "rebase"; MERGE = "merge"; CHERRY_PICK = "cherry-pick"
-    REVERT = "revert"; BISECT = "bisect"; AM = "am"
+    REBASE = "rebase"
+    MERGE = "merge"
+    CHERRY_PICK = "cherry-pick"
+    REVERT = "revert"
+    BISECT = "bisect"
+    AM = "am"
+
 
 @dataclass(frozen=True)
 class OperationState:
     kind: OpKind
-    step: int | None            # rebase msgnum / sequencer position
+    step: int | None  # rebase msgnum / sequencer position
     total: int | None
-    current: str | None         # sha being applied / bisect candidate
+    current: str | None  # sha being applied / bisect candidate
     onto: str | None
-    conflicts: int              # unmerged paths count
+    conflicts: int  # unmerged paths count
+
 
 async def detect(git: Git) -> OperationState | None: ...
 ```
@@ -331,28 +374,49 @@ Detection reads the worktree's git dir: `rebase-merge/` (`msgnum`, `end`, `onto`
 ```python
 @dataclass
 class TodoItem:
-    action: Literal["pick", "reword", "edit", "squash", "fixup", "drop",
-                    "exec", "break", "label", "reset", "merge", "update-ref"]
+    action: Literal[
+        "pick",
+        "reword",
+        "edit",
+        "squash",
+        "fixup",
+        "drop",
+        "exec",
+        "break",
+        "label",
+        "reset",
+        "merge",
+        "update-ref",
+    ]
     sha: str | None
     subject: str
     arg: str | None = None
 
+
 @dataclass(frozen=True)
 class StopInfo:
-    sha: str                    # commit we stopped at (already applied, HEAD)
+    sha: str  # commit we stopped at (already applied, HEAD)
     item: TodoItem
+
 
 @dataclass(frozen=True)
 class RebaseResult:
     status: Literal["done", "conflict", "aborted"]
     state: OperationState | None
 
+
 async def todo_for(git: Git, base: str) -> list[TodoItem]: ...
-async def run(session: RepoSession, base: str, todo: Sequence[TodoItem], *,
-              messages: Mapping[str, str] = {},                      # sha → new message (reword/squash)
-              on_stop: Callable[[StopInfo], Awaitable[None]] | None = None,
-              autostash: bool = True, rebase_merges: bool | None = None) -> RebaseResult: ...
-async def resume(session: RepoSession) -> RebaseResult: ...           # after conflicts resolved
+async def run(
+    session: RepoSession,
+    base: str,
+    todo: Sequence[TodoItem],
+    *,
+    messages: Mapping[str, str] = {},  # sha → new message (reword/squash)
+    on_stop: Callable[[StopInfo], Awaitable[None]] | None = None,
+    autostash: bool = True,
+    rebase_merges: bool | None = None,
+) -> RebaseResult: ...
+async def resume(session: RepoSession) -> RebaseResult: ...  # after conflicts resolved
 ```
 
 Mechanism: write the todo + messages to `<git-dir>/gitpanel/rebase/`; run `git rebase -i [--rebase-merges] [--autostash] <base>` with `GIT_SEQUENCE_EDITOR`/`GIT_EDITOR` = `_editor` helper, which copies our todo over git's and answers message prompts from `messages` (falling back to the existing message). For each `edit` stop, call `on_stop`, then `rebase --continue`. A conflict returns `status="conflict"`; the normal resolver + `resume()` finishes it (the staged instructions survive restarts). Callers run `run()` inside a single `journal.mutation`, so the whole rewrite is one undo step.
@@ -362,24 +426,29 @@ Mechanism: write the todo + messages to `<git-dir>/gitpanel/rebase/`; run `git r
 ```python
 @dataclass(frozen=True)
 class Marker:
-    kind: str                  # "head" | "branch" | "remote" | "tag" | "worktree" | "picked"
-                               # | "bisect-good" | "bisect-bad" | "bisect-skip" | "match" | …
+    kind: str  # "head" | "branch" | "remote" | "tag" | "worktree" | "picked"
+    # | "bisect-good" | "bisect-bad" | "bisect-skip" | "match" | …
     label: str
-    style: str                 # Textual CSS class / theme token
-    dims_row: bool = False     # e.g. already-picked commits render greyed
+    style: str  # Textual CSS class / theme token
+    dims_row: bool = False  # e.g. already-picked commits render greyed
+
 
 class MarkerProvider(Protocol):
     name: str
     invalidated_by: ChangeKind
-    async def markers(self, session: RepoSession, shas: Sequence[str],
-                      view: LogView) -> Mapping[str, Sequence[Marker]]: ...
+
+    async def markers(
+        self, session: RepoSession, shas: Sequence[str], view: LogView
+    ) -> Mapping[str, Sequence[Marker]]: ...
+
 
 @dataclass(frozen=True)
 class GraphRow:
     sha: str
-    column: int                # lane of this commit
-    glyphs: str                # pre-rendered lane characters, e.g. "│ ● ╮"
+    column: int  # lane of this commit
+    glyphs: str  # pre-rendered lane characters, e.g. "│ ● ╮"
     lane_colors: tuple[int, ...]
+
 
 @dataclass(frozen=True)
 class LogRow:
