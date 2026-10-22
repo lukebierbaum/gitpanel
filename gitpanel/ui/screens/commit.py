@@ -130,11 +130,14 @@ class CommitView(Vertical):
         }[ref.group]
         title.update(f"{ref.path}  ·  {group_title}")
         if ref.group == "conflict":
+            code = ref.status.conflict if ref.status and ref.status.conflict else "UU"
+            from ...git.conflicts import Conflict
+
             view.set_diff(
                 None,
                 None,
-                message="Unresolved conflict — fix the file, then stage it "
-                "(the 3-pane resolver arrives in M5)",
+                message=f"Merge conflict ({Conflict(ref.path, code).describe}) — enter: resolve "
+                "in the 3-pane merger · alt+←: accept yours · alt+→: accept theirs",
             )
             return
         generation = self._generation

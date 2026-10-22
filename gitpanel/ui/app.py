@@ -34,6 +34,7 @@ from .screens.branches import BranchesPopup
 from .screens.commit import CommitView
 from .screens.compare import CompareView
 from .screens.log import LogView
+from .screens.resolver import ResolverScreen
 from .screens.worktrees import WorktreesView
 from .theme import DEFAULT_THEME, HULK_GREEN, THEMES
 from .widgets.key_hints import KeyHints, pretty_key
@@ -278,6 +279,9 @@ class GitPanelApp(App[None]):
             return subprocess.run(list(argv), cwd=cwd).returncode
 
     def open_screen(self, name: str, **kwargs: Any) -> None:
+        if name == "resolver":
+            self.push_screen(ResolverScreen(str(kwargs["path"])))
+            return
         if name == "branches":
             if not isinstance(self.screen, BranchesPopup):
                 self.push_screen(BranchesPopup())
@@ -325,6 +329,8 @@ class GitPanelApp(App[None]):
         if event == "context_menu":
             self._context_menu()
             return
+        if hasattr(self.screen, "handle_event"):
+            self.screen.handle_event(event, data)
         for v in self._views():
             v.handle_event(event, data)
 

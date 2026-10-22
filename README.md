@@ -2,7 +2,7 @@
 
 A PyCharm-style Git client for the terminal: commit tool window with hunk/line staging, log with branch graph, branches popup, worktrees, cherry-picking between branches, 3-pane conflict resolver, history/annotate, shelves, interactive rebase, and undo.
 
-**Status:** milestones 1–4 of 10 done (commit window, log with graph, branches/worktrees/remotes, cherry-picking). See [docs/ROADMAP.md](docs/ROADMAP.md).
+**Status:** milestones 1–5 of 10 done (commit window, log with graph, branches/worktrees/remotes, cherry-picking, conflict resolver). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Try it
 Requires [pixi](https://pixi.sh).
@@ -47,6 +47,19 @@ pixi run start /tmp/gp-demo     # open it
 | `b` → `ctrl+e` | Compare window: commits only in either branch, already-picked ones marked ✓ (`h` hides them, `x` swaps) |
 
 Commits whose change already exists on your branch are dimmed and tagged `✓ picked` in the Log.
+
+### Merge conflicts
+Conflicted files appear under **Merge Conflicts** in the Commit window and the banner offers Continue / Skip / Abort.
+
+| Key | Action |
+|---|---|
+| `enter` | open the 3-pane resolver (yours │ result │ theirs) |
+| `←` / `→` | take yours / theirs for the current chunk (jumps to the next unresolved one) |
+| `b` / `B` | take both (yours first / theirs first) |
+| `e` / `u` | edit the result by hand / reset the chunk |
+| `n` / `p` | next / previous conflict |
+| `ctrl+s` | save and mark resolved |
+| `alt+←` / `alt+→` (in the Commit window) | accept yours / theirs for the whole file |
 
 ### Branches, worktrees, remotes
 | Key | Action |
