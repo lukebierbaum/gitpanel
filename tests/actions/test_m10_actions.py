@@ -123,8 +123,9 @@ async def test_multiline_shell_command_with_awk_braces(repo):
     repo.git("push", "-q", "-u", "origin", "main")
     repo.branch("old-feature")
     repo.git("push", "-q", "-u", "origin", "old-feature")
-    subprocess.run(["git", "-C", str(origin), "branch", "-D", "old-feature"], check=True,
-                   capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(origin), "branch", "-D", "old-feature"], check=True, capture_output=True
+    )
     repo.git("fetch", "-q", "--prune")
     cfg_file = repo.path.parent / "cfg.toml"
     cfg_file.write_text("""

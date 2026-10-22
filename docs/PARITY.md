@@ -37,7 +37,7 @@
 | Push all up to here | ✗ | |
 | Create patch from commits | ✗ | |
 | Open commit on GitHub | ✗ | doable as a custom command today |
-| Pushed / not pushed / remote-only commits | ✅ ➕ | `↑ not pushed`, `↓ remote only` labels; details list containing remote branches |
+| Pushed / not pushed / remote-only commits | ✅ | graph dots: amber = not pushed, purple = remote only; details list containing remote branches |
 
 ## Branches, remotes, update, push
 | Branches popup: recent / local / remote / tags, favourites, search | ✅ | |

@@ -64,7 +64,8 @@ async def test_log_shows_pushed_state(repo):
         table = app.query_one("#log-table", CommitTable)
         top = table.rows[0]
         assert top.commit.subject == "not pushed yet"
-        assert any(m.kind == "unpushed" for m in top.markers)
+        assert any(m.kind == "unpushed" and m.node_color and not m.label for m in top.markers)
+        assert app.query_one("#log-legend").has_class("-shown")
         assert not any(m.kind == "unpushed" for m in table.rows[1].markers)
         details = str(app.query_one("#log-details-text").render())
         assert "not pushed to any remote" in details

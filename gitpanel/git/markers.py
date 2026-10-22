@@ -18,6 +18,7 @@ class Marker:
     style: str = ""  # theme token / CSS class suffix
     dims_row: bool = False
     order: int = 50  # lower sorts first
+    node_color: str | None = None  # tint the commit's graph node (an empty label shows no badge)
 
 
 class MarkerProvider(Protocol):
@@ -139,6 +140,10 @@ class BisectMarkers:
         return {k: v for k, v in out.items() if k in wanted}
 
 
+UNPUSHED = "#E3B23C"  # amber: on a local branch, on no remote
+INCOMING = "#A66BE0"  # purple: on a remote branch, on no local branch
+
+
 class SyncMarkers:
     """Which commits exist only locally (not pushed) or only on a remote (not pulled)."""
 
@@ -180,9 +185,9 @@ class SyncMarkers:
         out: dict[str, list[Marker]] = {}
         for sha in shas:
             if sha in local_only:
-                out[sha] = [Marker("unpushed", "↑ not pushed", "unpushed", order=60)]
+                out[sha] = [Marker("unpushed", "", "unpushed", order=60, node_color=UNPUSHED)]
             elif sha in remote_only:
-                out[sha] = [Marker("incoming", "↓ remote only", "incoming", order=60)]
+                out[sha] = [Marker("incoming", "", "incoming", order=60, node_color=INCOMING)]
         return out
 
 

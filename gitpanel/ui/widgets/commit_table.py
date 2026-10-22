@@ -21,9 +21,9 @@ from ...git.markers import Marker
 from ...git.models import Commit
 
 # lane colours: Hulk greens and purples first, then contrasting hues
+# lane colours avoid amber and purple: those mark unpushed / remote-only commits
 LANE_COLORS = [
-    "#6CCB3A", "#A66BE0", "#3FB8AF", "#E3B23C", "#E06C9F",
-    "#4FA3E0", "#9BDB4D", "#C792EA", "#F78C6C", "#7FDBCA",
+    "#6CCB3A", "#3FB8AF", "#4FA3E0", "#E06C9F", "#9BDB4D", "#7FDBCA", "#5FB0E8",
 ]  # fmt: skip
 
 MARKER_STYLES = {
@@ -216,10 +216,13 @@ class CommitTable(ScrollView, can_focus=True):
 
         segs: list[Segment] = []
         graph_w = self._graph_w
+        node_color = next((m.node_color for m in row.markers if m.node_color), None)
         for ch, color in row.graph.cells:
             st = base + Style(color=LANE_COLORS[color % len(LANE_COLORS)]) if color >= 0 else base
             if ch in "●◆◉":
                 st += Style(bold=True)
+                if node_color:
+                    st += Style(color=node_color)
             segs.append(Segment(ch, st))
         # two spaces: fonts often draw ● ◆ ◉ wider than one cell, so give them room
         segs.append(Segment(" " * (graph_w - row.graph.width + 2), base))
@@ -228,6 +231,8 @@ class CommitTable(ScrollView, can_focus=True):
         subject_w = max(width - graph_w - 1 - right_w, 10)
         used = 0
         for m in row.markers:
+            if not m.label:
+                continue  # colour-only marker (e.g. unpushed)
             label = f" {m.label} " if m.kind == "head" else f"[{m.label}]"
             if used + len(label) + 1 > subject_w // 2:
                 break

@@ -65,7 +65,7 @@ Press `?` anywhere for every action and its key, `ctrl+p` for the command palett
 | `A` (in a commit's diff) / `G` (on a commit's file) | apply the selected hunk/lines / get the whole file from that revision |
 | `b` → `ctrl+e` | Compare window: commits only in either branch, already-picked ones marked ✓ (`h` hides them, `x` swaps) |
 
-Commits whose change already exists on your branch are dimmed and tagged `✓ picked` in the Log. Commits no remote has yet are tagged `↑ not pushed`, and commits only on a remote (fetched, not pulled) `↓ remote only`; the details pane says which remote branches contain the selected commit, and the branch panel tags never-pushed branches `local`.
+Commits whose change already exists on your branch are dimmed and tagged `✓ picked` in the Log. In the graph, commits no remote has yet get an **amber** dot and commits only on a remote (fetched, not pulled) a **purple** dot (legend in the filter bar); the details pane says which remote branches contain the selected commit, and the branch panel tags never-pushed branches `local`.
 
 ### History, annotate, shelf, stash, changelists
 | Key | Action |

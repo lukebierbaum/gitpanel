@@ -25,7 +25,7 @@ from ...git.log import (
     has_remotes,
     load_page,
 )
-from ...git.markers import collect, default_providers
+from ...git.markers import INCOMING, UNPUSHED, collect, default_providers
 from ..widgets.branch_panel import BranchPanel
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
@@ -50,6 +50,8 @@ class LogView(Vertical):
     LogView #log-right { width: 1fr; }
     LogView #log-filters Input { width: 1fr; margin-right: 1; }
     LogView #f-text { width: 2fr; }
+    LogView #log-legend { width: 31; min-width: 31; padding: 0 1; display: none; }
+    LogView #log-legend.-shown { display: block; }
     LogView CommitTable { height: 55%; border-bottom: tall $panel; }
     LogView #log-bottom { height: 1fr; }
     LogView #log-side { width: 40%; min-width: 30; border-right: tall $panel; }
@@ -79,6 +81,12 @@ class LogView(Vertical):
             yield Input(placeholder="User", id="f-user", compact=True)
             yield Input(placeholder="Paths", id="f-path", compact=True)
             yield Input(placeholder="Since (e.g. 2.weeks)", id="f-since", compact=True)
+            legend = Text()
+            legend.append("● ", style=f"bold {UNPUSHED}")
+            legend.append("not pushed  ", style="dim")
+            legend.append("● ", style=f"bold {INCOMING}")
+            legend.append("remote only", style="dim")
+            yield Static(legend, id="log-legend")
         with Horizontal(id="log-main"):
             yield BranchPanel(id="log-branches")
             with Vertical(id="log-right"):
@@ -121,8 +129,10 @@ class LogView(Vertical):
         if session is None:
             return
         git = session.git
+        branches = await R.branches(git)
+        self.query_one("#log-legend").set_class(any(b.is_remote for b in branches), "-shown")
         self.query_one(BranchPanel).populate(
-            await R.branches(git),
+            branches,
             await T.tags(git),
             R.Favorites(session.private_dir(shared=True) / "favorites.json").load(),
             session.active.branch,
