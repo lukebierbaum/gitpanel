@@ -104,12 +104,15 @@ class CommitView(Vertical):
         paths = [ref.path]
         if ref.status and ref.status.orig_path and ref.group == "staged":
             paths.append(ref.status.orig_path)
+        ctx_lines = self.gp.config.diff_context
         if ref.group == "untracked":
-            diffs = await P.load_diff(git, P.WorkingTree(), include_untracked=[ref.path])
+            diffs = await P.load_diff(
+                git, P.WorkingTree(), include_untracked=[ref.path], context=ctx_lines
+            )
         elif ref.group == "staged":
-            diffs = await P.load_diff(git, P.Staged(), paths)
+            diffs = await P.load_diff(git, P.Staged(), paths, context=ctx_lines)
         else:
-            diffs = await P.load_diff(git, P.WorkingTree(), paths)
+            diffs = await P.load_diff(git, P.WorkingTree(), paths, context=ctx_lines)
         self._diff_cache[key] = diffs
         return diffs
 

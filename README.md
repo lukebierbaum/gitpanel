@@ -1,16 +1,30 @@
 # gitpanel
 
-A PyCharm-style Git client for the terminal: commit tool window with hunk/line staging, log with branch graph, branches popup, worktrees, cherry-picking between branches, 3-pane conflict resolver, history/annotate, shelves, interactive rebase, and undo.
+A PyCharm-style Git client for the terminal: commit tool window with hunk/line staging, log with branch graph, branches popup, worktrees, cherry-picking between branches (with already-picked detection), 3-pane conflict resolver, history/annotate, shelves, interactive rebase — and undo for all of it, including discarded changes.
 
-**Status:** milestones 1–8 of 10 done (commit window, log with graph, branches/worktrees/remotes, cherry-picking, conflict resolver, interactive rebase, history/annotate/shelf/stash/changelists, undo history). See [docs/ROADMAP.md](docs/ROADMAP.md).
+![Commit window](docs/screenshots/commit.svg)
 
-## Try it
-Requires [pixi](https://pixi.sh).
+| | |
+|---|---|
+| ![Log](docs/screenshots/log.svg) | ![Compare branches](docs/screenshots/compare.svg) |
+| ![Branches popup](docs/screenshots/branches.svg) | ![Conflict resolver](docs/screenshots/resolver.svg) |
 
+**Status:** milestones 1–9 of 10 done — see [docs/ROADMAP.md](docs/ROADMAP.md). Remaining: patch builder, bisect, custom commands.
+
+## Install
+```bash
+pipx install git+ssh://git@github.com/lukebierbaum/gitpanel.git
+gitpanel            # in any repository or worktree
+gitpanel --init-config   # writes ~/.config/gitpanel/config.toml with every option
+```
+
+Or from a checkout with [pixi](https://pixi.sh):
 ```bash
 pixi run demo /tmp/gp-demo      # build a demo repository
 pixi run start /tmp/gp-demo     # open it
 ```
+
+Press `?` anywhere for every action and its key, `ctrl+p` for the command palette, `alt+enter` for actions on the current selection.
 
 ### Commit tool window
 | Key | Action |
@@ -82,7 +96,10 @@ Conflicted files appear under **Merge Conflicts** in the Commit window and the b
 | `F` / `ctrl+t` / `P` | fetch / update project (pull, merge or rebase) / push dialog |
 | `alt+enter` | actions for the current selection, anywhere |
 
-Colour scheme: **Hulk** (purple + gamma green) by default; `hulk-light` is available from the palette's theme switcher.
+Colour scheme: **Hulk** (purple + gamma green) by default; `hulk-light` or any Textual theme via `theme = "…"` in the config.
+
+### Configuration
+`gitpanel --init-config` writes a commented `~/.config/gitpanel/config.toml`: theme, side-by-side diffs, diff context, worktree path template, journal size, whether to confirm destructive actions, and `[keys]` to remap any action by id (ids are listed in `?`). A repository's `.gitpanel.toml` is only read with `--trust-repo-config`.
 
 ### `cd` into the worktree you were in when you quit
 ```bash
@@ -98,6 +115,7 @@ gp() {
 ```bash
 pixi run test
 pixi run lint
+pixi run python scripts/screenshots.py   # regenerate docs/screenshots
 ```
 
 Design docs: [architecture](docs/architecture.md) · [milestones](docs/milestones/) · [contributor rules](CLAUDE.md)

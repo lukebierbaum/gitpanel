@@ -26,6 +26,10 @@ class ActionEnv:
     ui: Ui
     session: RepoSession
     entry: JournalEntry | None = None  # set for mutating actions; `entry.op` may be refined
+    config: Any = None  # gitpanel.config.Config (None in tests → defaults)
+
+    def setting(self, name: str, default: Any) -> Any:
+        return getattr(self.config, name, default) if self.config is not None else default
 
 
 def _always(_ctx: SelectionContext) -> bool:
@@ -118,9 +122,10 @@ class Registry:
 
 
 class Dispatcher:
-    def __init__(self, registry: Registry, ui: Ui) -> None:
+    def __init__(self, registry: Registry, ui: Ui, config: Any = None) -> None:
         self.registry = registry
         self.ui = ui
+        self.config = config
 
     async def dispatch_id(self, action_id: str, ctx: SelectionContext) -> Any:
         return await self.dispatch(self.registry.get(action_id), ctx)
@@ -128,7 +133,8 @@ class Dispatcher:
     async def dispatch(self, action: Action, ctx: SelectionContext) -> Any:
         if not action.applies(ctx):
             return None
-        if action.confirm or (action.destructive and not action.silent_backup):
+        ask_destructive = getattr(self.config, "confirm_destructive", True)
+        if action.confirm or (action.destructive and not action.silent_backup and ask_destructive):
             body = (action.confirm or "This cannot be undone outside gitpanel.").format_map(
                 _SafeDict(ctx.placeholders())
             )
@@ -137,7 +143,7 @@ class Dispatcher:
             )
             if not ok:
                 return None
-        env = ActionEnv(ctx, self.ui, ctx.session)
+        env = ActionEnv(ctx, self.ui, ctx.session, config=self.config)
         try:
             if action.mutating:
                 paths = action.paths(ctx) if action.paths else None

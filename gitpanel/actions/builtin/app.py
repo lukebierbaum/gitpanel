@@ -26,6 +26,10 @@ def _redo_label(ctx: SelectionContext) -> str:
     return f"Redo “{e.op}”" if e else "Redo"
 
 
+async def _help(env: ActionEnv) -> None:
+    env.ui.open_screen("help")
+
+
 async def _journal(env: ActionEnv) -> None:
     env.ui.open_screen("journal")
 
@@ -157,6 +161,7 @@ def actions() -> list[Action]:
             label_fn=_redo_label,
         ),
         Action("app.journal", "Operation History…", _journal, key="alt+z", group="App"),
+        Action("app.help", "Keys and Actions", _help, key="question_mark", group="App"),
         Action(
             "journal.undo_to",
             "Undo / Redo to Here",

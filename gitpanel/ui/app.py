@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import AsyncIterator, Sequence
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,8 @@ from ..actions.builtin import register_builtin
 from ..actions.context import SelectionContext
 from ..actions.registry import Action, Dispatcher, Registry
 from ..actions.ui_protocol import Field, Severity
+from ..config import Config
+from ..config import load as load_config
 from ..git.operations import OperationState, detect
 from ..git.runner import GitError
 from ..git.session import ChangeKind, RepoSession
@@ -34,6 +37,7 @@ from .screens.annotate import AnnotateScreen
 from .screens.branches import BranchesPopup
 from .screens.commit import CommitView
 from .screens.compare import CompareView
+from .screens.help import HelpScreen
 from .screens.history import HistoryScreen
 from .screens.journal import JournalScreen
 from .screens.log import LogView
@@ -42,6 +46,7 @@ from .screens.resolver import ResolverScreen
 from .screens.shelf import ShelfView
 from .screens.worktrees import WorktreesView
 from .theme import DEFAULT_THEME, HULK_GREEN, THEMES
+from .widgets.diff_view import DiffView
 from .widgets.key_hints import KeyHints, pretty_key
 from .widgets.operation_banner import OperationBanner
 
@@ -65,9 +70,21 @@ class GitPanelApp(App[None]):
     """
     VIEWS = ("commit", "log", "worktrees", "compare", "shelf")
 
-    def __init__(self, path: Path | str = ".", *, registry: Registry | None = None) -> None:
+    def __init__(
+        self,
+        path: Path | str = ".",
+        *,
+        registry: Registry | None = None,
+        config: Config | None = None,
+        config_path: Path | None = None,
+        trust_repo_config: bool = False,
+    ) -> None:
         super().__init__()
         self.path = Path(path)
+        self.config = config or Config()
+        self._config_explicit = config is not None
+        self._config_path = config_path
+        self._trust_repo_config = trust_repo_config
         self.session: RepoSession | None = None
         self.registry = registry or register_builtin(Registry())
         self.dispatcher = Dispatcher(self.registry, self)
@@ -105,10 +122,40 @@ class GitPanelApp(App[None]):
             self.exit(return_code=2, message=self.startup_error)
             return
         self.query_one(Tabs).can_focus = False
+        self.apply_config()
         self.session.subscribe(self._on_change)
         self.session.start_watching()
-        self.run_worker(self.session.journal.prune(), group="prune", exit_on_error=False)
+        self.run_worker(
+            self.session.journal.prune(
+                self.config.journal_keep, timedelta(days=self.config.journal_max_age_days)
+            ),
+            group="prune",
+            exit_on_error=False,
+        )
         await self._refresh_all(ChangeKind.ALL)
+
+    def apply_config(self) -> None:
+        assert self.session is not None
+        if not self._config_explicit:
+            self.config = load_config(
+                self._config_path, self.session.active.path, self._trust_repo_config
+            )
+        cfg = self.config
+        self.dispatcher.config = cfg
+        if cfg.theme in self.available_themes:
+            self.theme = cfg.theme
+        else:
+            cfg.errors.append(f"unknown theme {cfg.theme!r}")
+        try:
+            self.registry.rebind(cfg.keys)
+        except KeyError as e:
+            known = {k: v for k, v in cfg.keys.items() if k in {a.id for a in self.registry.all()}}
+            self.registry.rebind(known)
+            cfg.errors.append(f"[keys]: {e.args[0]}")
+        for dv in self.query(DiffView):
+            dv.split = cfg.side_by_side
+        for err in cfg.errors:
+            self.notify(f"config: {err}", severity="warning", timeout=8)
 
     @property
     def view(self) -> View:
@@ -290,6 +337,9 @@ class GitPanelApp(App[None]):
     def open_screen(self, name: str, **kwargs: Any) -> None:
         if name == "resolver":
             self.push_screen(ResolverScreen(str(kwargs["path"])))
+            return
+        if name == "help":
+            self.push_screen(HelpScreen(self.context()))
             return
         if name == "journal":
             self.push_screen(JournalScreen())

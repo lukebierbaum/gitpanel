@@ -277,7 +277,17 @@ async def _new_worktree(env: ActionEnv) -> None:
     answer = await env.ui.form(
         f"New worktree for {ref.short}",
         [
-            Field("path", "Path", default=str(W.default_path(main, local or ref.short))),
+            Field(
+                "path",
+                "Path",
+                default=str(
+                    W.default_path(
+                        main,
+                        local or ref.short,
+                        env.setting("worktree_template", W.DEFAULT_TEMPLATE),
+                    )
+                ),
+            ),
             Field("switch", "Switch to it", "bool", True),
         ],
         ok_label="Create",

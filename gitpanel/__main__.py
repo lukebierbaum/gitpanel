@@ -19,15 +19,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         metavar="FILE",
         help="on exit, write the active worktree path to FILE (for a shell `cd` wrapper)",
     )
+    p.add_argument(
+        "--config", metavar="FILE", help="config file (default: ~/.config/gitpanel/config.toml)"
+    )
+    p.add_argument(
+        "--trust-repo-config",
+        action="store_true",
+        help="also load the repository's .gitpanel.toml (it can define commands)",
+    )
+    p.add_argument(
+        "--init-config", action="store_true", help="write an example config file and exit"
+    )
     p.add_argument("--version", action="version", version=f"gitpanel {__version__}")
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    if args.init_config:
+        from .config import write_example
+
+        print(write_example(Path(args.config) if args.config else None))
+        return
     from .ui.app import GitPanelApp
 
-    app = GitPanelApp(Path(args.path))
+    app = GitPanelApp(
+        Path(args.path),
+        config_path=Path(args.config) if args.config else None,
+        trust_repo_config=args.trust_repo_config,
+    )
     app.run()
     if app.startup_error:
         print(app.startup_error, file=sys.stderr)

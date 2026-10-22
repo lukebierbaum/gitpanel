@@ -64,7 +64,7 @@ async def new_worktree_flow(env: ActionEnv, *, at: str | None = None) -> None:
     path = (
         Path(str(answer["path"])).expanduser()
         if str(answer["path"]).strip()
-        else W.default_path(main, label)
+        else W.default_path(main, label, env.setting("worktree_template", W.DEFAULT_TEMPLATE))
     )
     if kind == "new":
         await W.add(git, path, new_branch=name, start=start)

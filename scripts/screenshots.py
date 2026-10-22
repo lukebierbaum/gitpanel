@@ -1,0 +1,140 @@
+"""Regenerate the README screenshots: `pixi run python scripts/screenshots.py`."""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+OUT = ROOT / "docs" / "screenshots"
+SIZE = (140, 38)
+
+sys.path.insert(0, str(ROOT))
+from gitpanel.config import Config  # noqa: E402
+from gitpanel.ui.app import GitPanelApp  # noqa: E402
+
+ENV = {
+    **os.environ,
+    "GIT_AUTHOR_NAME": "Ada Lovelace",
+    "GIT_AUTHOR_EMAIL": "ada@example.com",
+    "GIT_COMMITTER_NAME": "Ada Lovelace",
+    "GIT_COMMITTER_EMAIL": "ada@example.com",
+    "GIT_CONFIG_NOSYSTEM": "1",
+}
+
+
+def git(repo: Path, *args: str, check: bool = True) -> None:
+    subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", *args],
+        cwd=repo,
+        env=ENV,
+        check=check,
+        capture_output=True,
+    )
+
+
+def commit(repo: Path, files: dict[str, str], msg: str) -> None:
+    for name, content in files.items():
+        p = repo / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", msg)
+
+
+def pick_repo(base: Path) -> Path:
+    repo = base / "parser"
+    git(base, "init", "-q", "-b", "main", str(repo))
+    commit(repo, {"parser.py": "def parse(s):\n    return s.split()\n"}, "Initial parser")
+    git(repo, "branch", "release/1.x")
+    git(repo, "switch", "-q", "-c", "feature/tokens")
+    commit(repo, {"tokens.py": "TOKENS = []\n"}, "Add token table")
+    commit(
+        repo,
+        {"parser.py": "def parse(s):\n    return s.strip().split()\n"},
+        "Fix whitespace bug in parse()",
+    )
+    commit(repo, {"cli.py": "import sys\n"}, "Add --tokens CLI flag")
+    commit(repo, {"README.md": "# parser\n"}, "Document tokens")
+    git(repo, "switch", "-q", "main")
+    git(repo, "cherry-pick", "-x", "feature/tokens~2")
+    commit(repo, {"VERSION": "1.1\n"}, "Bump version")
+    git(repo, "worktree", "add", "-q", str(base / "parser-release"), "release/1.x")
+    (repo / "parser.py").write_text(
+        "def parse(s):\n    # split on whitespace\n    return s.strip().split()\n\n\n"
+        "def parse_all(lines):\n    return [parse(ln) for ln in lines]\n"
+    )
+    (repo / "notes.txt").write_text("todo\n")
+    git(repo, "add", "notes.txt")
+    (repo / "scratch.py").write_text("print('hi')\n")
+    return repo
+
+
+def conflict_repo(base: Path) -> Path:
+    repo = base / "service"
+    git(base, "init", "-q", "-b", "main", str(repo))
+    src = (
+        "def handler(req):\n    validate(req)\n    log('start')\n    data = load(req.id)\n"
+        "    data = transform(data)\n    log('done')\n    return render(data)\n"
+    )
+    commit(repo, {"app.py": src}, "Handler")
+    git(repo, "branch", "feature/v2")
+    commit(
+        repo,
+        {
+            "app.py": src.replace("log('start')", "log.info('start', id=req.id)").replace(
+                "render(data)", "render(data, fmt='json')"
+            )
+        },
+        "Structured logging",
+    )
+    git(repo, "switch", "-q", "feature/v2")
+    commit(
+        repo,
+        {
+            "app.py": src.replace("log('start')", "logger.debug('start')").replace(
+                "render(data)", "render_v2(data)"
+            )
+        },
+        "Use render_v2",
+    )
+    git(repo, "switch", "-q", "main")
+    git(repo, "merge", "feature/v2", check=False)
+    return repo
+
+
+async def shot(repo: Path, name: str, keys: list[str], theme: str = "hulk") -> None:
+    app = GitPanelApp(repo, config=Config(theme=theme))
+    async with app.run_test(size=SIZE) as pilot:
+        for _ in range(40):
+            await pilot.pause(0.02)
+        for k in keys:
+            await pilot.press(k)
+            for _ in range(15):
+                await pilot.pause(0.02)
+        app.save_screenshot(str(OUT / f"{name}.svg"))
+    print("wrote", OUT / f"{name}.svg")
+
+
+async def main() -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    base = Path(tempfile.mkdtemp(prefix="gitpanel-shots-"))
+    try:
+        repo = pick_repo(base)
+        await shot(repo, "commit", ["down", "down", "down", "tab"])
+        await shot(repo, "log", ["alt+9", "down", "down"])
+        await shot(repo, "branches", ["b"])
+        await shot(repo, "compare", ["b", *"feat", "ctrl+e"])
+        await shot(repo, "worktrees", ["alt+8"])
+        await shot(conflict_repo(base), "resolver", ["down", "down", "enter"])
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

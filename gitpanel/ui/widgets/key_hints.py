@@ -9,6 +9,7 @@ from ...actions.context import SelectionContext
 from ...actions.registry import Registry
 
 KEY_DISPLAY = {
+    "question_mark": "?",
     "space": "␣",
     "ctrl+": "^",
     "alt+": "⌥",
