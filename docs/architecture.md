@@ -182,7 +182,11 @@ class UndoRefused(Exception):
 class Journal:
     @asynccontextmanager
     async def mutation(
-        self, op: str, *, destructive: bool = False, paths: Sequence[str] | None = None,
+        self,
+        op: str,
+        *,
+        destructive: bool = False,
+        paths: Sequence[str] | None = None,
         reset_mode: ResetMode = "keep",
     ) -> AsyncIterator[JournalEntry]: ...
     def can_undo(self) -> JournalEntry | None: ...
