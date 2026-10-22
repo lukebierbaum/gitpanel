@@ -474,6 +474,13 @@ class DiffView(ScrollView, can_focus=True):
             )
         return strip
 
+    def on_mount(self) -> None:
+        # diffs opened later (History, Shelf…) also start in the configured mode
+        config = getattr(self.app, "config", None)
+        if config is not None and config.side_by_side and not self.split:
+            self.split = True
+            self._rebuild()
+
     def on_focus(self) -> None:
         self.refresh()
 

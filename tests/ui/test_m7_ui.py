@@ -57,3 +57,23 @@ async def test_shelve_from_commit_window_and_unshelve(repo):
         await pilot.press("enter")
         await settle(pilot, app)
         assert repo.read("README.md") == "changed\n"
+
+
+async def test_side_by_side_config_applies_to_screens_opened_later(repo):
+    from gitpanel.config import Config
+    from gitpanel.ui.widgets.diff_view import DiffView
+
+    repo.commit({"f.txt": "one\n"}, "first f")
+    repo.commit({"f.txt": "two\n"}, "second f")
+    repo.write("f.txt", "three\n")
+    app = GitPanelApp(repo.path, config=Config(side_by_side=True))
+    async with app.run_test(size=(150, 45)) as pilot:
+        await settle(pilot, app)
+        assert app.query_one("#diff", DiffView).split
+        move_to(app, "unstaged", "f.txt")
+        app.query_one("#changes").focus()
+        await settle(pilot, app)
+        await pilot.press("alt+h")
+        await settle(pilot, app)
+        assert isinstance(app.screen, HistoryScreen)
+        assert app.screen.query_one(DiffView).split
