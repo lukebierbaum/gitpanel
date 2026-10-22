@@ -33,6 +33,7 @@ from .dialogs import (
     PromptDialog,
     TextDialog,
 )
+from .keys import alt_equivalent
 from .palette import RegistryCommands
 from .screens.annotate import AnnotateScreen
 from .screens.branches import BranchesPopup
@@ -261,6 +262,10 @@ class GitPanelApp(App[None]):
             return
         ctx = self.context()
         action = self.registry.for_key(ctx, event.key)
+        if action is None:
+            # Mac-Option-style layouts send Alt+5 as "∞" etc.; map back to alt+…
+            alt = alt_equivalent(event.character)
+            action = self.registry.for_key(ctx, alt) if alt else None
         if action is None:
             return
         event.stop()

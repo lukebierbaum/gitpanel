@@ -145,7 +145,7 @@ def actions() -> list[Action]:
             "app.context_menu",
             "Actions…",
             _context_menu,
-            key="alt+enter",
+            key="alt+enter,full_stop",
             group="App",
             show_in_palette=False,
         ),
