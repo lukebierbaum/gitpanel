@@ -462,10 +462,32 @@ class Journal:
                 f"{upstream.removeprefix('refs/remotes/')}. Revert them instead."
             )
 
+    async def undo_to(self, entry_id: int) -> list[JournalEntry]:
+        """Undo entries newest-first until `entry_id` is undone (stops on refusal)."""
+        done: list[JournalEntry] = []
+        while True:
+            nxt = self.can_undo()
+            if nxt is None or nxt.id < entry_id:
+                return done
+            done.append(await self.undo())
+            if nxt.id == entry_id:
+                return done
+
+    async def redo_to(self, entry_id: int) -> list[JournalEntry]:
+        done: list[JournalEntry] = []
+        while True:
+            nxt = self.can_redo()
+            if nxt is None or nxt.id > entry_id:
+                return done
+            done.append(await self.redo())
+            if nxt.id == entry_id:
+                return done
+
     async def prune(self, keep: int = 200, max_age: timedelta = timedelta(days=30)) -> None:
         entries = self.entries()
         cutoff = datetime.now(UTC) - max_age
-        kept = [e for e in entries[-keep:] if e.when >= cutoff]
+        recent = entries[-keep:] if keep > 0 else []  # entries[-0:] would keep everything
+        kept = [e for e in recent if e.when >= cutoff]
         dropped = {e.id for e in entries} - {e.id for e in kept}
         for eid in dropped:
             for suffix in ("", "-after"):

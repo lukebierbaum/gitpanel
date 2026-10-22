@@ -35,6 +35,7 @@ from .screens.branches import BranchesPopup
 from .screens.commit import CommitView
 from .screens.compare import CompareView
 from .screens.history import HistoryScreen
+from .screens.journal import JournalScreen
 from .screens.log import LogView
 from .screens.rebase_editor import RebaseEditorScreen
 from .screens.resolver import ResolverScreen
@@ -106,6 +107,7 @@ class GitPanelApp(App[None]):
         self.query_one(Tabs).can_focus = False
         self.session.subscribe(self._on_change)
         self.session.start_watching()
+        self.run_worker(self.session.journal.prune(), group="prune", exit_on_error=False)
         await self._refresh_all(ChangeKind.ALL)
 
     @property
@@ -289,6 +291,9 @@ class GitPanelApp(App[None]):
         if name == "resolver":
             self.push_screen(ResolverScreen(str(kwargs["path"])))
             return
+        if name == "journal":
+            self.push_screen(JournalScreen())
+            return
         if name == "history":
             self.push_screen(
                 HistoryScreen(
@@ -370,7 +375,7 @@ class GitPanelApp(App[None]):
         options = []
         for a in actions:
             key = self.registry.key_for(a)
-            options.append((a.id, f"{a.label}" + (f"   [{pretty_key(key)}]" if key else "")))
+            options.append((a.id, a.label_for(ctx) + (f"   [{pretty_key(key)}]" if key else "")))
         choice = await self.choose("Actions", options)
         if choice:
             await self.dispatcher.dispatch(self.registry.get(choice), ctx)

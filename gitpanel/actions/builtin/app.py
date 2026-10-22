@@ -16,6 +16,30 @@ async def _quit(env: ActionEnv) -> None:
     env.ui.post("app.quit")
 
 
+def _undo_label(ctx: SelectionContext) -> str:
+    e = ctx.session.journal.can_undo()
+    return f"Undo “{e.op}”" if e else "Undo"
+
+
+def _redo_label(ctx: SelectionContext) -> str:
+    e = ctx.session.journal.can_redo()
+    return f"Redo “{e.op}”" if e else "Redo"
+
+
+async def _journal(env: ActionEnv) -> None:
+    env.ui.open_screen("journal")
+
+
+async def _undo_to(env: ActionEnv) -> None:
+    entry_id = env.ctx.form["journal_entry"]
+    journal = env.session.journal
+    undone = next((e.undone for e in journal.entries() if e.id == entry_id), False)
+    done = await (journal.redo_to(entry_id) if undone else journal.undo_to(entry_id))
+    verb = "Redid" if undone else "Undid"
+    env.ui.notify(f"{verb} {len(done)} operation{'s' if len(done) != 1 else ''}")
+    env.ui.post("journal.refresh")
+
+
 async def _undo(env: ActionEnv) -> None:
     entry = await env.session.journal.undo()
     env.ui.notify(f"Undid: {entry.op}")
@@ -121,6 +145,7 @@ def actions() -> list[Action]:
             when=lambda ctx: ctx.session.journal.can_undo() is not None,
             key="z",
             group="App",
+            label_fn=_undo_label,
         ),
         Action(
             "app.redo",
@@ -129,6 +154,17 @@ def actions() -> list[Action]:
             when=lambda ctx: ctx.session.journal.can_redo() is not None,
             key="Z",
             group="App",
+            label_fn=_redo_label,
+        ),
+        Action("app.journal", "Operation History…", _journal, key="alt+z", group="App"),
+        Action(
+            "journal.undo_to",
+            "Undo / Redo to Here",
+            _undo_to,
+            when=lambda ctx: ctx.form.get("journal_entry") is not None,
+            key="enter",
+            group="Journal",
+            screens=frozenset({"journal"}),
         ),
         Action(
             "op.continue",

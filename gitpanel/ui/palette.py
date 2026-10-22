@@ -25,25 +25,23 @@ class RegistryCommands(Provider):
                 continue
             key = app.registry.key_for(action)
             help_text = f"{action.group} · {pretty_key(key)}" if key else action.group
-            out.append((action, ctx, help_text))
+            out.append((action, ctx, help_text, action.label_for(ctx)))
         return out
 
     async def discover(self) -> Hits:
         app: GitPanelApp = self.app  # type: ignore[assignment]
-        for action, ctx, help_text in self._items():
-            yield DiscoveryHit(
-                action.label, partial(app.run_action_in_ctx, action, ctx), help=help_text
-            )
+        for action, ctx, help_text, label in self._items():
+            yield DiscoveryHit(label, partial(app.run_action_in_ctx, action, ctx), help=help_text)
 
     async def search(self, query: str) -> Hits:
         app: GitPanelApp = self.app  # type: ignore[assignment]
         matcher = self.matcher(query)
-        for action, ctx, help_text in self._items():
-            score = matcher.match(action.label)
+        for action, ctx, help_text, label in self._items():
+            score = matcher.match(label)
             if score > 0:
                 yield Hit(
                     score,
-                    matcher.highlight(action.label),
+                    matcher.highlight(label),
                     partial(app.run_action_in_ctx, action, ctx),
                     help=help_text,
                 )

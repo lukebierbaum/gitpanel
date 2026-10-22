@@ -48,7 +48,7 @@ class KeyHints(Static):
                 continue
             key = registry.key_for(action)
             if key:
-                items.append((key, action.label))
+                items.append((key, action.label_for(ctx)))
         items.extend(extra)
         for i, (key, label) in enumerate(items):
             if i:

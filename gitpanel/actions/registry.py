@@ -51,6 +51,15 @@ class Action:
     paths: Callable[[SelectionContext], list[str] | None] | None = None
     show_in_palette: bool = True
     description: str = ""
+    label_fn: Callable[[SelectionContext], str] | None = None  # dynamic label (e.g. undo target)
+
+    def label_for(self, ctx: SelectionContext) -> str:
+        if self.label_fn is None:
+            return self.label
+        try:
+            return self.label_fn(ctx)
+        except Exception:
+            return self.label
 
     def applies(self, ctx: SelectionContext) -> bool:
         if self.screens is not None and ctx.screen not in self.screens:

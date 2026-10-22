@@ -2,7 +2,7 @@
 
 A PyCharm-style Git client for the terminal: commit tool window with hunk/line staging, log with branch graph, branches popup, worktrees, cherry-picking between branches, 3-pane conflict resolver, history/annotate, shelves, interactive rebase, and undo.
 
-**Status:** milestones 1–7 of 10 done (commit window, log with graph, branches/worktrees/remotes, cherry-picking, conflict resolver, interactive rebase, history/annotate/shelf/stash/changelists). See [docs/ROADMAP.md](docs/ROADMAP.md).
+**Status:** milestones 1–8 of 10 done (commit window, log with graph, branches/worktrees/remotes, cherry-picking, conflict resolver, interactive rebase, history/annotate/shelf/stash/changelists, undo history). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Try it
 Requires [pixi](https://pixi.sh).
@@ -22,7 +22,8 @@ pixi run start /tmp/gp-demo     # open it
 | `a` / `A` | stage all / unstage all |
 | `ctrl+k` | commit (`alt+m` toggles amend; `alt+↑↓` message history) |
 | `ctrl+alt+z` | rollback file / hunk / lines (undoable) |
-| `z` / `Z` | undo / redo the last operation, including discarded changes |
+| `z` / `Z` | undo / redo the last operation, including discarded changes (the hint shows what) |
+| `alt+z` | operation history — `enter` undoes (or redoes) everything down to the selected entry |
 | `ctrl+p` | command palette (everything available in the current context) |
 | `q` | quit |
 
