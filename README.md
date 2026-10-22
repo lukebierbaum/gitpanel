@@ -2,7 +2,7 @@
 
 A PyCharm-style Git client for the terminal: commit tool window with hunk/line staging, log with branch graph, branches popup, worktrees, cherry-picking between branches, 3-pane conflict resolver, history/annotate, shelves, interactive rebase, and undo.
 
-**Status:** milestones 1–5 of 10 done (commit window, log with graph, branches/worktrees/remotes, cherry-picking, conflict resolver). See [docs/ROADMAP.md](docs/ROADMAP.md).
+**Status:** milestones 1–6 of 10 done (commit window, log with graph, branches/worktrees/remotes, cherry-picking, conflict resolver, interactive rebase). See [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Try it
 Requires [pixi](https://pixi.sh).
@@ -34,6 +34,9 @@ pixi run start /tmp/gp-demo     # open it
 | `R` | edit commit message (any commit on the current branch) |
 | `B` / `T` | new branch / tag at the commit |
 | `y` | copy hash |
+| `I` | interactively rebase from here (editor: `p r e s f d`, `alt+↑↓` move, `ctrl+s` start) |
+| `S` / `D` | squash / drop the selected commits |
+| `alt+f` | fold the staged changes into the selected commit (fixup + autosquash) |
 | `ctrl+p` | everything else: checkout revision, reset to here, revert… |
 | `s` (in a diff) | side-by-side diff |
 

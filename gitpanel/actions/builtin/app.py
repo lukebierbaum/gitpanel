@@ -42,6 +42,18 @@ def _op(ctx: SelectionContext, *kinds: OpKind) -> bool:
 async def _continue(env: ActionEnv) -> None:
     op = env.ctx.operation
     assert op is not None
+    if op.kind is OpKind.REBASE:
+        # resume() keeps gitpanel's staged reword/squash messages for later commits
+        from ...git import scripted_rebase as SR
+
+        res = await SR.resume(env.session)
+        if res.status == "conflict":
+            env.ui.notify("Rebase stopped with conflicts again", severity="warning")
+        elif res.status == "stopped":
+            env.ui.notify("Rebase paused for editing — amend, then Continue", severity="warning")
+        else:
+            env.ui.notify("Rebase finished")
+        return
     await env.session.git.run(_OP_COMMAND[op.kind], "--continue")
     env.ui.notify(f"{op.kind} continued")
 

@@ -34,6 +34,7 @@ from .screens.branches import BranchesPopup
 from .screens.commit import CommitView
 from .screens.compare import CompareView
 from .screens.log import LogView
+from .screens.rebase_editor import RebaseEditorScreen
 from .screens.resolver import ResolverScreen
 from .screens.worktrees import WorktreesView
 from .theme import DEFAULT_THEME, HULK_GREEN, THEMES
@@ -281,6 +282,9 @@ class GitPanelApp(App[None]):
     def open_screen(self, name: str, **kwargs: Any) -> None:
         if name == "resolver":
             self.push_screen(ResolverScreen(str(kwargs["path"])))
+            return
+        if name == "rebase":
+            self.push_screen(RebaseEditorScreen(kwargs.get("base"), list(kwargs["todo"])))
             return
         if name == "branches":
             if not isinstance(self.screen, BranchesPopup):

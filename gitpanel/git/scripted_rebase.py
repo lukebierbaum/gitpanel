@@ -159,10 +159,46 @@ async def _drive(session: RepoSession, res: GitResult, on_stop: OnStop | None) -
             return RebaseResult("conflict", state, res.text + res.stderr)
         stopped_at = state.current or await git.try_rev_parse("HEAD")
         item = _item_for(session, stopped_at)
-        if item is not None and item.action == "edit" and on_stop is not None:
-            head = await git.rev_parse("HEAD")
-            await on_stop(StopInfo(head, item))
-        elif not res.ok or item is None or item.action != "edit":
+        if item is None or item.action != "edit" or on_stop is None:
+            # a conflict-free stop we don't drive ourselves: hand over to the user
             return RebaseResult("stopped", state, res.text + res.stderr)
+        head = await git.rev_parse("HEAD")
+        await on_stop(StopInfo(head, item))
         res = await git.run("rebase", "--continue", env=_env(session), check=False)
     raise RebaseError("rebase did not finish")
+
+
+# --- plans -------------------------------------------------------------------------------
+
+
+def validate(todo: Sequence[TodoItem]) -> None:
+    live = [t for t in todo if t.action != "drop"]
+    if not live:
+        raise RebaseError("At least one commit must be kept")
+    if live[0].action in ("squash", "fixup"):
+        raise RebaseError("The first commit can't be squashed or fixed up into a previous one")
+
+
+def squash_plan(todo: list[TodoItem], shas: Sequence[str]) -> tuple[list[TodoItem], str]:
+    """Squash `shas` into the oldest of them. Returns (new todo, sha that gets the message)."""
+    wanted = set(shas)
+    chosen = [t for t in todo if t.sha in wanted]
+    if len(chosen) < 2:
+        raise RebaseError("Select at least two commits on the current branch")
+    first = chosen[0]
+    new = [t for t in todo if t.sha not in wanted]
+    at = sum(1 for t in todo[: todo.index(first)] if t.sha not in wanted)
+    group = [TodoItem("pick", first.sha, first.subject)] + [
+        TodoItem("squash", t.sha, t.subject) for t in chosen[1:]
+    ]
+    new[at:at] = group
+    return new, chosen[-1].sha or ""
+
+
+def fixup_plan(todo: list[TodoItem], target: str, fixup_sha: str) -> list[TodoItem]:
+    """Move `fixup_sha` right after `target` as a fixup."""
+    fix = next(t for t in todo if t.sha == fixup_sha)
+    new = [t for t in todo if t.sha != fixup_sha]
+    idx = next(i for i, t in enumerate(new) if t.sha == target)
+    new.insert(idx + 1, TodoItem("fixup", fix.sha, fix.subject))
+    return new
