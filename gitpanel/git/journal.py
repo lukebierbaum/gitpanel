@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import shutil
 import tempfile
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import asdict, dataclass, field
@@ -100,7 +101,9 @@ async def snapshot_worktree(git: Git, message: str) -> str:
     os.close(fd)
     try:
         if git_index.exists():
-            Path(tmp).write_bytes(git_index.read_bytes())
+            # copy2 keeps the index mtime so git's racy-clean detection still
+            # re-checks files modified in the same second as the index
+            shutil.copy2(git_index, tmp)
         else:
             os.unlink(tmp)
         env = {"GIT_INDEX_FILE": tmp}

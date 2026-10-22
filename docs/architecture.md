@@ -49,12 +49,11 @@ gitpanel/
   actions/
     registry.py               # Action, Registry, Dispatcher
     context.py                # SelectionContext, Scope
-    ui_protocol.py            # Ui protocol (confirm/prompt/notify/choose/show_output/suspend)
+    ui_protocol.py            # Ui protocol (confirm/prompt/choose/notify/show_error/show_output/run_in_terminal/post)
     builtin/                  # one module per area: commit.py, log.py, branches.py, worktrees.py, …
     custom.py                 # [[commands]] from config → Actions
   ui/
     app.py                    # GitPanelApp: owns RepoSession, Registry, Dispatcher; implements Ui
-    keys.py                   # key → action dispatch, KeyHints footer fed from registry
     palette.py                # Textual CommandProvider over the registry
     widgets/                  # DiffView, PatchSelectView, GraphLog, FileTree, RefTree, OperationBanner, KeyHints
     screens/                  # commit, log, branches, worktrees, conflicts, history, annotate, shelf, rebase_editor, push, compare
@@ -101,7 +100,7 @@ class Git:
 Rules:
 - Base env: `LC_ALL=C`, `GIT_PAGER=cat`, `GIT_EDITOR` and `GIT_SEQUENCE_EDITOR` = `sys.executable -m gitpanel.git._editor` (which fails safely unless a scripted rebase has staged instructions, so git never blocks on an editor).
 - Always pass `-c color.ui=false -c core.quotepath=false`; use `-z` and NUL-separated formats wherever git offers them.
-- Network commands (fetch/pull/push) run with `GIT_TERMINAL_PROMPT=0` first; on auth failure the UI offers to rerun via `Ui.suspend()` in the real terminal so credential prompts work.
+- Network commands (fetch/pull/push) run with `GIT_TERMINAL_PROMPT=0` first; on auth failure the UI offers to rerun via `Ui.run_in_terminal()` in the real terminal so credential prompts work.
 - Cancellation: cancelling the awaiting task kills the subprocess.
 
 ## 4. Session, worktrees and change events (`git/session.py`)
@@ -168,9 +167,12 @@ class JournalEntry:
     head_after: HeadState
     refs_before: dict[str, str | None]  # only refs that changed; None = didn't exist
     refs_after: dict[str, str | None]
-    backup: str | None  # refs/gitpanel/backup/<id> (worktree+index snapshot) or None
+    backup: str | None  # refs/gitpanel/backup/<id>: worktree+index snapshot before the op
+    backup_after: str | None  # refs/gitpanel/backup/<id>-after: snapshot after it (for redo)
     paths: list[str] | None  # paths a destructive op touched (None = whole tree)
+    reset_mode: ResetMode = "keep"  # soft | mixed | keep | hard — how the current branch is moved
     undone: bool = False
+    failed: bool = False
 
 
 class UndoRefused(Exception):
@@ -180,8 +182,11 @@ class UndoRefused(Exception):
 class Journal:
     @asynccontextmanager
     async def mutation(
-        self, op: str, *, destructive: bool = False, paths: Sequence[str] | None = None
+        self, op: str, *, destructive: bool = False, paths: Sequence[str] | None = None,
+        reset_mode: ResetMode = "keep",
     ) -> AsyncIterator[JournalEntry]: ...
+    def can_undo(self) -> JournalEntry | None: ...
+    def can_redo(self) -> JournalEntry | None: ...
     async def undo(self) -> JournalEntry: ...  # raises UndoRefused
     async def redo(self) -> JournalEntry: ...
     def entries(self, limit: int = 100) -> list[JournalEntry]: ...
@@ -192,9 +197,11 @@ Semantics:
 - `mutation()` acquires `session.lock`, snapshots `HEAD` + all refs (`for-each-ref --format='%(refname) %(objectname)'`, excluding `refs/gitpanel/`), yields, snapshots again, stores only the diff, appends one JSON line to `<git-dir>/gitpanel/journal.jsonl`, then emits `ChangeKind`s derived from what changed (plus `INDEX|WORKTREE` always).
 - **Nested** mutations collapse into the outermost entry (one user action = one undo step).
 - **Failed** mutations (exception) are still recorded if any ref moved, labelled `"<op> (failed)"`.
-- `destructive=True` first writes a **backup commit**: copy the index to a temp `GIT_INDEX_FILE`, `git add -A` (respects .gitignore) → `write-tree` → `commit-tree -p HEAD` → `update-ref refs/gitpanel/backup/<id>`. The real index tree is stored in the backup's commit message trailer (`Index-Tree: <sha>`).
-- **Undo** = for each ref in `refs_after`: refuse if its current value ≠ `refs_after` (moved since), else `update-ref` to `refs_before` (delete if None); restore `HEAD` (`checkout`/`switch --detach`, refusing if the worktree is dirty in conflicting paths); if `backup`, restore `paths` (or all) from the backup tree into the worktree and `read-tree` the index tree. **Redo** is the mirror image.
-- Refuse (with reason) when: an operation is in progress; a ref to restore was pushed (`refs_before` not reachable from its upstream while `refs_after` is) — offer revert instead; the entry belongs to another worktree.
+- Mutations that moved no ref/HEAD and made no backup (e.g. staging) are not recorded.
+- A new recorded mutation discards entries that were undone (linear undo/redo history).
+- `destructive=True` first writes a **backup commit**: copy the index (with `shutil.copy2`, preserving its mtime so git's racy-clean check still re-reads same-second edits) to a temp `GIT_INDEX_FILE`, `git add -A` (respects .gitignore) → `write-tree` → `commit-tree -p HEAD` → `update-ref refs/gitpanel/backup/<id>`. The real index tree is stored in the backup's commit message trailer (`Index-Tree: <sha>`).
+- **Undo** = refuse if any ref in `refs_after` (or HEAD) moved since; checkout the previous branch if the op switched branches; the current branch moves with `git reset --<reset_mode>`, other refs with `update-ref` (`-d` if they didn't exist); remote-tracking refs are never restored; if `backup`, the worktree and index for `paths` are made to match the snapshot (files absent from it are deleted). **Redo** is the mirror image using `backup_after`.
+- Refuse (with reason) when: an operation is in progress; a ref to move is checked out in another worktree; the op created commits that are now reachable from the branch's upstream (pushed) and the op itself didn't fetch them — offer revert instead.
 
 ## 6. Actions, selection context and dispatch (`actions/`)
 
@@ -215,15 +222,18 @@ class Scope(StrEnum):
 @dataclass(frozen=True)
 class SelectionContext:
     session: RepoSession
-    screen: str  # "commit", "log", "branches", …
-    focus: Scope  # what the focused widget is about
+    screen: str = ""  # "commit", "log", "branches", …
+    focus: Scope = Scope.GLOBAL  # what the focused widget is about
     commits: tuple[Commit, ...] = ()
     refs: tuple[Ref, ...] = ()
-    files: tuple[FileRef, ...] = ()  # path + DiffSource
-    selection: Selection | None = None  # hunk/line selection (patch.py)
+    files: tuple[FileRef, ...] = ()  # FileRef(path, source: DiffSource, group, status)
+    patch: PatchSelection | None = None  # PatchSelection(source, diffs, selection) from patch.py
     worktree: Worktree | None = None
     stash: StashEntry | None = None
     operation: OperationState | None = None
+    form: Mapping[str, Any] = {}  # screen inputs, e.g. commit message / amend / author
+
+    def placeholders(self) -> dict[str, str]: ...  # {commit} {branch} {file} {count} {op} …
 
 
 class Ui(Protocol):
@@ -233,32 +243,46 @@ class Ui(Protocol):
     ) -> str | None: ...
     async def choose(self, title: str, options: Sequence[tuple[str, str]]) -> str | None: ...
     def notify(
-        self, message: str, *, severity: Literal["info", "warning", "error"] = "info"
+        self, message: str, *, severity: Literal["information", "warning", "error"] = "information"
     ) -> None: ...
     async def show_output(self, title: str, stream: AsyncIterator[str]) -> int: ...
-    async def suspend(self, argv: Sequence[str], cwd: Path) -> int: ...  # run in real terminal
+    async def run_in_terminal(
+        self, argv: Sequence[str], cwd: Path
+    ) -> int: ...  # suspend UI, run in real terminal
+    def show_error(self, title: str, details: str) -> None: ...
+    def post(self, event: str, **data: Any) -> None: ...  # e.g. "commit.done" → screens react
     def open_screen(self, name: str, **kwargs: Any) -> None: ...
 
 
-@dataclass(frozen=True)
+@dataclass
 class ActionEnv:
     ctx: SelectionContext
     ui: Ui
     session: RepoSession
+    entry: JournalEntry | None = None  # mutating actions may refine entry.op ("Commit: <subject>")
 
 
 @dataclass(frozen=True)
 class Action:
     id: str  # "commit.amend", "log.cherry_pick", "custom.open-pr"
     label: str  # palette / menu text
-    run: Callable[[ActionEnv], Awaitable[None]]
-    scopes: frozenset[Scope]  # where it applies
-    when: Callable[[SelectionContext], bool] = lambda ctx: True
+    run: Callable[[ActionEnv], Awaitable[Any]]
+    scopes: frozenset[Scope] = frozenset({Scope.GLOBAL})  # where it applies
+    when: Callable[[SelectionContext], bool] = always
     key: str | None = None  # default binding (Textual key syntax)
-    group: str = ""  # context-menu section
+    group: str = ""  # context-menu / palette section
+    screens: frozenset[str] | None = None  # restrict to screens; None = anywhere
     mutating: bool = False  # dispatcher wraps in journal.mutation(label)
     destructive: bool = False  # → backup snapshot + confirm
+    reset_mode: ResetMode = "keep"  # how undo moves the current branch (commit uses "soft")
     confirm: str | None = None  # confirmation text, may use {placeholders}
+    confirm_title: str | None = None
+    paths: Callable[[SelectionContext], list[str] | None] | None = None  # for destructive backups
+    show_in_palette: bool = True
+    description: str = ""
+
+
+class ActionError(Exception): ...  # user-facing failure, shown as an error notification
 
 
 class Registry:
@@ -275,9 +299,10 @@ class Dispatcher:
 
 Rules:
 - Screens publish a fresh `SelectionContext` (immutable) whenever focus/selection changes; the app holds the latest one.
-- Key handling: `ui/keys.py` intercepts keys at the screen level, asks `registry.for_key(ctx, key)`, dispatches. Navigation keys (arrows, tab, enter in lists, text input) stay with widgets. The footer `KeyHints` widget lists `registry.available(ctx)` that have keys — no static Textual `BINDINGS` for git operations.
+- Key handling: `GitPanelApp.on_key` (keys bubble there before widget bindings run) intercepts keys on the base screen, asks `registry.for_key(ctx, key)`, dispatches. Navigation keys (arrows, tab, enter in lists, text input) stay with widgets. The footer `KeyHints` widget lists `registry.available(ctx)` that have keys — no static Textual `BINDINGS` for git operations.
 - Context menus (`.` or right-click) and the command palette are `registry.available(ctx)` grouped by `group`.
-- Dispatcher order: `when` check → `confirm` (if set or `destructive`) → `journal.mutation(label, destructive=…)` if `mutating` → `run` → errors (`GitError`, `UndoRefused`) shown via `ui.notify(severity="error")` with stderr in an expandable output pane.
+- Dispatcher order: `applies(ctx)` (screens + scopes + `when`) → `confirm` (if set or `destructive`) → `journal.mutation(label, destructive=…, paths=…, reset_mode=…)` if `mutating` → `run` → errors: `GitError` → `ui.notify(severity="error")` + `ui.show_error(details)`; `UndoRefused` → warning; `ActionError` → error notification.
+- `Registry.for_key()` prefers screen-restricted actions over unrestricted ones, then non-global scopes over global, so one key (e.g. `space` = stage/unstage) can mean different things in different contexts via `when`.
 - Actions are plain async functions over `ActionEnv`; they are tested with a fake `Ui` and a real temp repo, no Textual.
 
 Custom commands (M10) compile `[[commands]]` entries into `Action(id="custom.<id>", mutating=True unless output=="none" and declared read_only)`, with `{commit} {commits} {branch} {ref} {file} {files} {worktree} {repo}` + prompt placeholders substituted shell-quoted.
@@ -362,12 +387,14 @@ class OperationState:
     current: str | None  # sha being applied / bisect candidate
     onto: str | None
     conflicts: int  # unmerged paths count
+    head_name: str | None  # branch being rebased
+    remaining: int | None  # commits left in a cherry-pick/revert sequence
 
 
 async def detect(git: Git) -> OperationState | None: ...
 ```
 
-Detection reads the worktree's git dir: `rebase-merge/` (`msgnum`, `end`, `onto`, `stopped-sha`) or `rebase-apply/`, `MERGE_HEAD`, `CHERRY_PICK_HEAD` / `REVERT_HEAD` with `sequencer/todo`, `BISECT_LOG`. One `OperationBanner` widget renders any state; continue/skip/abort are ordinary actions with `when=lambda c: c.operation and c.operation.kind in {...}`.
+Detection reads the worktree's git dir: `rebase-merge/` (`msgnum`, `end`, `onto`, `stopped-sha`) or `rebase-apply/`, `MERGE_HEAD`, `CHERRY_PICK_HEAD` / `REVERT_HEAD` with `sequencer/todo`, `BISECT_LOG`. git doesn't record a cherry-pick/revert sequence's length, so gitpanel writes `<git-dir>/gitpanel/sequence-total` when it starts one; `step/total` are derived from that and `remaining`. One `OperationBanner` widget renders any state; continue/skip/abort are ordinary actions with `when=lambda c: c.operation and c.operation.kind in {...}`.
 
 ## 9. Scripted rebase (`git/scripted_rebase.py`)
 

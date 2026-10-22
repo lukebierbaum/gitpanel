@@ -1,0 +1,342 @@
+"""Unified diff view with hunk and line selection (Line API, scales to large diffs)."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Literal
+
+from rich.segment import Segment
+from rich.style import Style
+from textual import events
+from textual.binding import Binding
+from textual.geometry import Size
+from textual.message import Message
+from textual.reactive import reactive
+from textual.scroll_view import ScrollView
+from textual.strip import Strip
+
+from ...git.patch import DiffSource, FileDiff, Selection
+
+GUTTER = 12  # "12345 12345 "
+
+
+@dataclass(frozen=True)
+class Row:
+    kind: Literal["info", "hunk", "line"]
+    text: str
+    hunk: int = -1
+    line: int = -1
+    marker: str = " "
+    old_no: int | None = None
+    new_no: int | None = None
+
+
+def build_rows(diff: FileDiff | None, message: str = "") -> list[Row]:
+    if diff is None:
+        return [Row("info", message)] if message else []
+    rows: list[Row] = []
+    if diff.binary:
+        rows.append(Row("info", "Binary file — only whole-file operations are available"))
+    elif not diff.hunks:
+        if diff.old_mode != diff.new_mode and diff.old_mode and diff.new_mode:
+            rows.append(Row("info", f"Mode change {diff.old_mode} → {diff.new_mode}"))
+        elif diff.status == "R":
+            rows.append(Row("info", f"Renamed from {diff.old_path}"))
+        else:
+            rows.append(Row("info", "No content changes"))
+    for hi, h in enumerate(diff.hunks):
+        rows.append(Row("hunk", h.header, hunk=hi))
+        for li, ln in enumerate(h.lines):
+            rows.append(
+                Row(
+                    "line",
+                    ln.text.replace("\t", "    ").rstrip("\r"),
+                    hunk=hi,
+                    line=li,
+                    marker=ln.kind,
+                    old_no=ln.old_no,
+                    new_no=ln.new_no,
+                )
+            )
+    return rows
+
+
+class DiffView(ScrollView, can_focus=True):
+    """Shows one FileDiff. `space` acts on the hunk under the cursor, or on the
+    lines of a range selection started with `v` / shift+arrows."""
+
+    COMPONENT_CLASSES = {
+        "diff-view--added",
+        "diff-view--removed",
+        "diff-view--hunk",
+        "diff-view--info",
+        "diff-view--gutter",
+        "diff-view--cursor",
+        "diff-view--selected",
+        "diff-view--hunk-active",
+        "diff-view--nonewline",
+    }
+
+    DEFAULT_CSS = """
+    DiffView {
+        background: $surface;
+    }
+    DiffView > .diff-view--added { color: $text-success; background: $success 12%; }
+    DiffView > .diff-view--removed { color: $text-error; background: $error 12%; }
+    DiffView > .diff-view--hunk { color: $text-accent; text-style: bold; }
+    DiffView > .diff-view--info { color: $text-muted; text-style: italic; }
+    DiffView > .diff-view--gutter { color: $text-muted; }
+    DiffView > .diff-view--nonewline { color: $text-muted; text-style: italic; }
+    DiffView > .diff-view--cursor { background: $primary 30%; }
+    DiffView:focus > .diff-view--cursor { background: $primary 55%; }
+    DiffView > .diff-view--selected { background: $accent 35%; }
+    DiffView > .diff-view--hunk-active { background: $foreground 6%; }
+    """
+
+    BINDINGS = [
+        Binding("up,k", "cursor(-1)", "Up", show=False),
+        Binding("down,j", "cursor(1)", "Down", show=False),
+        Binding("pageup", "page(-1)", "Page up", show=False),
+        Binding("pagedown", "page(1)", "Page down", show=False),
+        Binding("home", "jump(0)", "Top", show=False),
+        Binding("end", "jump(-1)", "Bottom", show=False),
+        Binding("shift+up", "extend(-1)", "Extend selection up", show=False),
+        Binding("shift+down", "extend(1)", "Extend selection down", show=False),
+        Binding("v", "toggle_range", "Select lines", show=False),
+        Binding("escape", "clear_range", "Clear selection", show=False),
+        Binding("n,f7", "next_hunk(1)", "Next change", show=False),
+        Binding("p,shift+f7", "next_hunk(-1)", "Previous change", show=False),
+    ]
+
+    cursor: reactive[int] = reactive(0, always_update=True)
+
+    class SelectionChanged(Message):
+        def __init__(self, view: DiffView) -> None:
+            super().__init__()
+            self.view = view
+
+    def __init__(self, *, name: str | None = None, id: str | None = None) -> None:
+        super().__init__(name=name, id=id)
+        self.source: DiffSource | None = None
+        self.diff: FileDiff | None = None
+        self.rows: list[Row] = []
+        self.anchor: int | None = None
+        self._max_width = 0
+
+    # -- content -------------------------------------------------------------
+    def set_diff(
+        self,
+        source: DiffSource | None,
+        diff: FileDiff | None,
+        *,
+        message: str = "",
+        keep_position: bool = False,
+    ) -> None:
+        same_file = (
+            keep_position
+            and self.diff is not None
+            and diff is not None
+            and self.diff.path == diff.path
+        )
+        old_cursor = self.cursor
+        self.source = source
+        self.diff = diff
+        self.rows = build_rows(diff, message)
+        self.anchor = None
+        self._max_width = max((GUTTER + 1 + len(r.text) for r in self.rows), default=0)
+        self.virtual_size = Size(self._max_width, len(self.rows))
+        if same_file:
+            self.cursor = min(old_cursor, max(len(self.rows) - 1, 0))
+        else:
+            self.cursor = self._first_change()
+            self.scroll_to(0, 0, animate=False)
+        self.refresh()
+        self.post_message(self.SelectionChanged(self))
+
+    def _first_change(self) -> int:
+        for i, r in enumerate(self.rows):
+            if r.kind == "line" and r.marker in "+-":
+                return i
+        return 0
+
+    # -- selection -------------------------------------------------------------
+    @property
+    def has_range(self) -> bool:
+        return self.anchor is not None
+
+    def _range(self) -> tuple[int, int]:
+        assert self.anchor is not None
+        return min(self.anchor, self.cursor), max(self.anchor, self.cursor)
+
+    def selection(self) -> Selection | None:
+        """Lines of the active range, else the hunk under the cursor."""
+        diff = self.diff
+        if diff is None or not self.rows:
+            return None
+        if not diff.partial_allowed:
+            return Selection.files([diff.path])
+        if self.anchor is not None:
+            lo, hi = self._range()
+            pairs = [
+                (r.hunk, r.line)
+                for r in self.rows[lo : hi + 1]
+                if r.kind == "line" and r.marker in "+-"
+            ]
+            if not pairs:
+                return None
+            sel = Selection()
+            sel.add_lines(diff.path, pairs)
+            return sel
+        row = self.rows[min(self.cursor, len(self.rows) - 1)]
+        if row.hunk < 0:
+            return None
+        return Selection.hunks(diff, [row.hunk])
+
+    def describe_selection(self) -> str:
+        if self.diff is None:
+            return ""
+        if not self.diff.partial_allowed:
+            return "file"
+        if self.anchor is not None:
+            sel = self.selection()
+            n = len(sel.lines.get(self.diff.path, ())) if sel else 0
+            return f"{n} line{'s' if n != 1 else ''}"
+        return "hunk"
+
+    # -- actions ----------------------------------------------------------------
+    def watch_cursor(self, old: int, new: int) -> None:
+        self._scroll_cursor_into_view()
+        self.refresh()
+        self.post_message(self.SelectionChanged(self))
+
+    def validate_cursor(self, value: int) -> int:
+        return max(0, min(value, len(self.rows) - 1)) if self.rows else 0
+
+    def _scroll_cursor_into_view(self) -> None:
+        h = self.scrollable_content_region.height or self.size.height
+        y = self.scroll_offset.y
+        if self.cursor < y:
+            self.scroll_to(y=self.cursor, animate=False)
+        elif h and self.cursor >= y + h:
+            self.scroll_to(y=self.cursor - h + 1, animate=False)
+
+    def action_cursor(self, delta: int) -> None:
+        self.cursor += delta
+
+    def action_page(self, direction: int) -> None:
+        self.cursor += direction * max(self.size.height - 1, 1)
+
+    def action_jump(self, where: int) -> None:
+        self.cursor = 0 if where == 0 else len(self.rows) - 1
+
+    def action_extend(self, delta: int) -> None:
+        if self.anchor is None:
+            self.anchor = self.cursor
+        self.cursor += delta
+
+    def action_toggle_range(self) -> None:
+        self.anchor = None if self.anchor is not None else self.cursor
+        self.refresh()
+        self.post_message(self.SelectionChanged(self))
+
+    def action_clear_range(self) -> None:
+        if self.anchor is not None:
+            self.anchor = None
+            self.refresh()
+            self.post_message(self.SelectionChanged(self))
+
+    def action_next_hunk(self, direction: int) -> None:
+        """Jump to the next/previous block of changed lines."""
+        i = self.cursor
+        rows = self.rows
+
+        def is_change(k: int) -> bool:
+            return rows[k].kind == "line" and rows[k].marker in "+-"
+
+        # leave the current block first
+        while 0 <= i < len(rows) and is_change(i):
+            i += direction
+        while 0 <= i < len(rows) and not is_change(i):
+            i += direction
+        if 0 <= i < len(rows):
+            if direction < 0:
+                while i > 0 and is_change(i - 1):
+                    i -= 1
+            self.cursor = i
+
+    def on_click(self, event: events.Click) -> None:
+        row = event.y + self.scroll_offset.y
+        if 0 <= row < len(self.rows):
+            if event.shift:
+                if self.anchor is None:
+                    self.anchor = self.cursor
+            else:
+                self.anchor = None
+            self.cursor = row
+        self.focus()
+
+    # -- rendering ------------------------------------------------------------------
+    def render_line(self, y: int) -> Strip:
+        scroll_x, scroll_y = self.scroll_offset
+        idx = y + scroll_y
+        width = self.scrollable_content_region.width or self.size.width
+        base = self.rich_style
+        if idx >= len(self.rows):
+            return Strip.blank(width, base)
+        row = self.rows[idx]
+        style = self.get_component_rich_style
+        gutter_style = style("diff-view--gutter")
+        if row.kind == "info":
+            text_style = style("diff-view--info")
+        elif row.kind == "hunk":
+            text_style = style("diff-view--hunk")
+        elif row.marker == "+":
+            text_style = style("diff-view--added")
+        elif row.marker == "-":
+            text_style = style("diff-view--removed")
+        elif row.marker == "\\":
+            text_style = style("diff-view--nonewline")
+        else:
+            text_style = Style()
+
+        if row.kind == "line":
+            old = "" if row.old_no is None else str(row.old_no)
+            new = "" if row.new_no is None else str(row.new_no)
+            gutter = f"{old:>5} {new:>5} "
+            body = f"{row.marker}{row.text}" if row.marker != "\\" else f"\\{row.text}"
+        else:
+            gutter = " " * GUTTER
+            body = row.text
+
+        overlay: Style | None = None
+        if self.anchor is not None:
+            lo, hi = self._range()
+            if lo <= idx <= hi:
+                overlay = style("diff-view--selected")
+        elif row.hunk >= 0 and self.cursor < len(self.rows):
+            if self.rows[self.cursor].hunk == row.hunk and self.has_focus:
+                overlay = style("diff-view--hunk-active")
+        if idx == self.cursor:
+            overlay = style("diff-view--cursor")
+
+        segments = [
+            Segment(gutter, base + gutter_style),
+            Segment(body, base + text_style),
+        ]
+        strip = Strip(segments)
+        line_style = base + text_style if row.marker in "+-" and row.kind == "line" else base
+        strip = strip.crop_extend(scroll_x, scroll_x + width, line_style)
+        if overlay is not None and overlay.bgcolor is not None:
+            # layer the highlight on top of each segment's own background
+            top = Style(bgcolor=overlay.bgcolor)
+            strip = Strip(
+                [Segment(seg.text, (seg.style or Style()) + top, seg.control) for seg in strip],
+                strip.cell_length,
+            )
+        return strip
+
+    def on_focus(self) -> None:
+        self.refresh()
+
+    def on_blur(self) -> None:
+        self.refresh()

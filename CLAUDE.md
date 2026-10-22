@@ -22,7 +22,7 @@ Add dependencies with `pixi add <pkg>` (conda-forge) or `pixi add --pypi <pkg>` 
 2. **All git access goes through `Git.run()/stream()`** — no `subprocess` elsewhere, no GitPython/pygit2. Use `-z`/NUL formats and `read_only=True` for queries.
 3. **Every repo mutation runs inside `journal.mutation()`** — normally automatic via the `Dispatcher` (`Action(mutating=True)`). Ops that discard working-tree content set `destructive=True`. Each mutating action needs an undo test.
 4. **Screens don't bind git operations.** Register an `Action` in `gitpanel/actions/builtin/<area>.py` with scopes/`when`/key; screens only publish `SelectionContext`. No git keys in Textual `BINDINGS`.
-5. **Actions talk to the user only via the `Ui` protocol** (confirm/prompt/choose/notify/show_output/suspend) so they're testable with `FakeUi`.
+5. **Actions talk to the user only via the `Ui` protocol** (confirm/prompt/choose/notify/show_error/show_output/run_in_terminal/post) so they're testable with `FakeUi`.
 6. **Hunk/line selection uses `patch.py`** (`DiffSource` + `Selection` + `build_patch` + `apply`) — never hand-roll patch text.
 7. **Rewriting history uses `scripted_rebase.run()`**, inside one mutation, so it's one undo step.
 8. **Log decorations are `MarkerProvider`s**; don't special-case them in the graph renderer.
