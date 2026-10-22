@@ -67,6 +67,7 @@ class BranchPanel(Tree[PanelItem]):
         self.marked: dict[str, str] = {}  # key → filter
         self._collapsed: set[str] = {"group:tags"}
         self._expanded: set[str] = set()  # folders the user opened (folders start closed)
+        self.folders = True  # group "a/b" branch names into folders
         self._last: tuple[str, ...] | None = None
         self._data: dict[str, Any] = {}
 
@@ -127,7 +128,7 @@ class BranchPanel(Tree[PanelItem]):
         leaves: list[Any] = []
         for r in refs:
             head, sep, _rest = r.short.removeprefix(strip).partition("/")
-            if sep:
+            if sep and self.folders:
                 folders[head].append(r)
             else:
                 leaves.append(r)

@@ -108,12 +108,43 @@ async def test_branches_are_grouped_into_folders(repo):
         await settle(pilot, app)
         await pilot.press("space")
         await settle(pilot, app)
-        assert set(panel.marked) == {"refs/heads/feature/search", "refs/heads/feature/tokens",
-                                     "refs/heads/feature/ui/dark"}
+        assert set(panel.marked) == {
+            "refs/heads/feature/search",
+            "refs/heads/feature/tokens",
+            "refs/heads/feature/ui/dark",
+        }
         assert {s for s in subjects(app) if s.startswith("work")} == {
-            "work on feature/search", "work on feature/tokens", "work on feature/ui/dark"}
+            "work on feature/search",
+            "work on feature/tokens",
+            "work on feature/ui/dark",
+        }
         # folder state survives a refresh
         app.view.reload()
         await settle(pilot, app)
         local = next(n for n in panel.root.children if n.data.key == "group:local")
         assert local.children[0].is_expanded
+
+
+async def test_folders_toggle_and_config(repo):
+    from gitpanel.config import Config
+
+    repo.branch("feature/a")
+    repo.branch("feature/b")
+    app = GitPanelApp(repo.path, config=Config(branch_folders=False))
+    async with app.run_test(size=(170, 45)) as pilot:
+        await settle(pilot, app)
+        await pilot.press("2")
+        await settle(pilot, app)
+        panel = app.query_one(BranchPanel)
+
+        def local_labels():
+            local = next(n for n in panel.root.children if n.data.key == "group:local")
+            return [str(n.label).strip().split("  ")[0].lstrip("★● ") for n in local.children]
+
+        assert local_labels() == ["main", "feature/a", "feature/b"]  # flat, favourites first
+        await pilot.press("g")
+        await settle(pilot, app)
+        assert local_labels()[0] == "feature" and panel.folders
+        await pilot.press("g")
+        await settle(pilot, app)
+        assert local_labels() == ["main", "feature/a", "feature/b"]

@@ -16,6 +16,9 @@ theme = "hulk"               # hulk, hulk-light, or any Textual theme (textual-d
 side_by_side = false         # start diffs side-by-side
 context = 3                  # context lines around changes
 
+[log]
+branch_folders = true        # group feature/x, release/y … into folders in the Log's branch panel
+
 [worktrees]
 path_template = "../{repo}.worktrees/{branch}"   # relative to the main worktree
 
@@ -45,6 +48,7 @@ destructive = true           # ask before actions that discard work (they're alw
 class Config:
     theme: str = "hulk"
     side_by_side: bool = False
+    branch_folders: bool = True
     diff_context: int = 3
     worktree_template: str = "../{repo}.worktrees/{branch}"
     journal_keep: int = 200
@@ -79,6 +83,7 @@ def _merge(cfg: Config, data: dict[str, Any], origin: str) -> None:
 
     get("", "theme", str, "theme")
     get("diff", "side_by_side", bool, "side_by_side")
+    get("log", "branch_folders", bool, "branch_folders")
     get("diff", "context", int, "diff_context")
     get("worktrees", "path_template", str, "worktree_template")
     get("journal", "keep", int, "journal_keep")

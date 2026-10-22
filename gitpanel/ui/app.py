@@ -48,6 +48,7 @@ from .screens.resolver import ResolverScreen
 from .screens.shelf import ShelfView
 from .screens.worktrees import WorktreesView
 from .theme import DEFAULT_THEME, HULK_GREEN, THEMES
+from .widgets.branch_panel import BranchPanel
 from .widgets.diff_view import DiffView
 from .widgets.key_hints import KeyHints, pretty_key
 from .widgets.operation_banner import OperationBanner
@@ -157,6 +158,8 @@ class GitPanelApp(App[None]):
             cfg.errors.append(f"[keys]: {e.args[0]}")
         for dv in self.query(DiffView):
             dv.split = cfg.side_by_side
+        for panel in self.query(BranchPanel):
+            panel.folders = cfg.branch_folders
         for err in cfg.errors:
             self.notify(f"config: {err}", severity="warning", timeout=8)
 

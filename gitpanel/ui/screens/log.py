@@ -321,6 +321,12 @@ class LogView(Vertical):
         return []
 
     def handle_event(self, event: str, data: dict[str, Any]) -> None:
+        if event == "log.toggle_folders":
+            panel = self.query_one(BranchPanel)
+            panel.folders = not panel.folders
+            self.reload_branches()
+            self.gp.notify("Branch folders " + ("on" if panel.folders else "off"))
+            return
         if event == "open" and "branch" in data:
             for fid in ("f-text", "f-user", "f-path", "f-since"):
                 self.query_one(f"#{fid}", Input).value = ""

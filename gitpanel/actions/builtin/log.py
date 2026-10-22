@@ -140,6 +140,10 @@ async def _new_worktree(env: ActionEnv) -> None:
     await new_worktree_flow(env, at=env.ctx.commits[0].sha)
 
 
+async def _toggle_folders(env: ActionEnv) -> None:
+    env.ui.post("log.toggle_folders")
+
+
 async def _show_commit(env: ActionEnv) -> None:
     env.ui.open_screen("commit")
 
@@ -159,6 +163,14 @@ def actions() -> list[Action]:
             group="Tool windows",
         ),
         Action("app.show_log", "Git Log", _show_log, key="2,alt+9", group="Tool windows"),
+        Action(
+            "log.toggle_branch_folders",
+            "Branch Panel: Group into Folders On/Off",
+            _toggle_folders,
+            key="g",
+            group="View",
+            screens=SCREEN,
+        ),
         Action(
             "log.checkout_revision",
             "Checkout Revision",
