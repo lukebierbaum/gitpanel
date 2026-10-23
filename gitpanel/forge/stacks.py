@@ -5,13 +5,14 @@ Three kinds, in order of precedence:
 - `chain` — open same-repo PRs whose bases chain onto each other's branches but that
   aren't a GitHub stack yet;
 - `local` — a local stack (gh-stack's record, or branches built on each other) where at
-  least one layer has no open PR yet.
+  least one layer has no open PR yet. When its PRs already form a GitHub stack or chain,
+  the PR-less layers are added on top of that stack instead.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from ..git.stack import LocalStack
@@ -49,6 +50,11 @@ class Stack:
         if self.kind == "local":
             return "local · not a GitHub stack yet"
         return "not a GitHub stack yet"
+
+    @property
+    def local_layers(self) -> int:
+        """Layers without a PR yet."""
+        return sum(ly.pr is None for ly in self.layers)
 
     @property
     def prs(self) -> list[int]:
@@ -111,13 +117,24 @@ def build_stacks(
 
     # local stacks with a layer that has no PR yet
     pr_for_branch = {p.head: p.number for p in prs if not p.cross_repo}
+    owner = {ly.pr: i for i, st in enumerate(out) for ly in st.layers if ly.pr is not None}
     seen_local: set[tuple[str, ...]] = set()
+    placed: set[str] = set()
     for ls in local:
         if len(ls.branches) < 2 or ls.branches in seen_local:
             continue
         seen_local.add(ls.branches)
-        layers = tuple(Layer(b, pr_for_branch.get(b)) for b in ls.branches)
-        if all(ly.pr is not None for ly in layers):
+        layers = [Layer(b, pr_for_branch.get(b)) for b in ls.branches if b not in placed]
+        bare = [ly for ly in layers if ly.pr is None]
+        if not bare:
             continue  # every layer has a PR: shown as a GitHub stack or chain instead
-        out.append(Stack("local", ls.trunk, layers))
+        owners = {owner.get(ly.pr) for ly in layers if ly.pr is not None}
+        if owners and None not in owners and len(owners) == 1:
+            # its PRs are already a stack: the PR-less layers go on top of it
+            i = owners.pop()
+            assert i is not None
+            out[i] = replace(out[i], layers=out[i].layers + tuple(bare))
+        else:
+            out.append(Stack("local", ls.trunk, tuple(layers)))
+        placed |= {ly.branch for ly in bare}
     return out

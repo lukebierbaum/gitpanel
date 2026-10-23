@@ -8,6 +8,10 @@ the cursor stays on the same item across refreshes, and the sort order is rememb
 
 A screen describes its columns (`Col`) and how an item matches the filter; it sets items
 with `set_items()` and reads the highlighted one from `selected`.
+
+With `arrange`, the screen decides the order while no column sort is active: it gets the
+filtered items and returns the rows to show — it may add items back (e.g. the rest of a
+match's group) and put `Group` label rows between them. The cursor skips group rows.
 """
 
 from __future__ import annotations
@@ -38,6 +42,16 @@ class Col(Generic[T]):
     cell: Callable[[T], RenderableType]
     sort: Callable[[T], Any] | None = None  # None = can't sort by this column
     descending_first: bool = False  # e.g. dates and numbers: newest first
+
+
+@dataclass(frozen=True)
+class Group:
+    """A label row between items (not selectable): `label` in the flexible column, `cells`
+    in others by column key."""
+
+    key: str
+    label: Text
+    cells: tuple[tuple[str, Text], ...] = ()
 
 
 def words_match(text: str, haystack: str) -> bool:
@@ -123,6 +137,7 @@ class ListTable(Vertical, Generic[T]):
         state_key: str | None = None,
         table_id: str | None = None,
         zebra: bool = True,
+        arrange: Callable[[list[T]], Sequence[T | Group]] | None = None,
         id: str | None = None,
     ) -> None:
         super().__init__(id=id)
@@ -135,8 +150,10 @@ class ListTable(Vertical, Generic[T]):
         self._state_key = state_key
         self._table_id = table_id
         self._zebra = zebra
+        self._arrange = arrange
         self.items: list[T] = []
-        self.shown: list[T] = []
+        self.shown: list[T | Group] = []  # rows, in order (items and group labels)
+        self._last_row = 0
         self.sort: tuple[str, bool] | None = None  # (column key, descending); None = as given
         self.note = ""  # shown after the count, e.g. "updated 08:37" or "loading…"
         self._message: str | None = None
@@ -184,7 +201,8 @@ class ListTable(Vertical, Generic[T]):
     def selected(self) -> T | None:
         table = self.table
         row = table.cursor_row
-        return self.shown[row] if self.shown and 0 <= row < len(self.shown) else None
+        item = self.shown[row] if self.shown and 0 <= row < len(self.shown) else None
+        return None if isinstance(item, Group) else item
 
     def set_items(self, items: Sequence[T], *, keep: str | None = None) -> None:
         """Replace the items; the cursor stays on `keep` (default: the current item)."""
@@ -197,19 +215,39 @@ class ListTable(Vertical, Generic[T]):
         if keep is None and current is not None:
             keep = self._key(current)
         text = self.filter_text
-        shown = [i for i in self.items if not text or self._match(i, text)]
+        matched = [i for i in self.items if not text or self._match(i, text)]
+        rows: list[T | Group]
         if self.sort is not None:
             col = next(c for c in self.columns if c.key == self.sort[0])
             assert col.sort is not None
-            shown.sort(key=col.sort, reverse=self.sort[1])
-        self.shown = shown
+            rows = sorted(matched, key=col.sort, reverse=self.sort[1])
+        elif self._arrange is not None:
+            rows = list(self._arrange(matched))
+        else:
+            rows = list(matched)
+        self.shown = rows
         table = self.table
         table.clear()
-        for item in shown:
-            table.add_row(*(c.cell(item) for c in self.columns), key=self._key(item))
-        if shown:
-            row = next((i for i, it in enumerate(shown) if self._key(it) == keep), 0)
-            table.move_cursor(row=row)
+        flex = next((c.key for c in self.columns if c.width is None), self.columns[0].key)
+        for row in rows:
+            if isinstance(row, Group):
+                extra = dict(row.cells)
+                cells = [row.label if c.key == flex else extra.get(c.key, "") for c in self.columns]
+                table.add_row(*cells, key=row.key)
+            else:
+                table.add_row(*(c.cell(row) for c in self.columns), key=self._key(row))
+        if rows:
+            first = next((i for i, r in enumerate(rows) if not isinstance(r, Group)), 0)
+            at = next(
+                (
+                    i
+                    for i, r in enumerate(rows)
+                    if not isinstance(r, Group) and self._key(r) == keep
+                ),
+                first,
+            )
+            self._last_row = at
+            table.move_cursor(row=at)
         self._update_status()
         self.post_message(self.Highlighted(self, self.selected))
 
@@ -229,11 +267,12 @@ class ListTable(Vertical, Generic[T]):
 
     def _update_status(self) -> None:
         text = self.filter_text
-        count = f"{len(self.shown)} of {len(self.items)}" if text else str(len(self.items))
+        n_shown = sum(not isinstance(r, Group) for r in self.shown)
+        count = f"{n_shown} of {len(self.items)}" if text else str(len(self.items))
         status = " · ".join(x for x in (count if self.items else "", self.note) if x)
         self.query_one(".lt-status", Static).update(status)
         message = self._message
-        if message is None and not self.shown:
+        if message is None and not any(not isinstance(r, Group) for r in self.shown):
             message = self._empty(text if self.items else "")
         widget = self.query_one(".lt-message", Static)
         widget.set_class(bool(message), "-shown")
@@ -291,6 +330,22 @@ class ListTable(Vertical, Generic[T]):
     @on(DataTable.RowHighlighted)
     def _row(self, event: DataTable.RowHighlighted) -> None:
         event.stop()
+        row = event.cursor_row
+        if 0 <= row < len(self.shown) and isinstance(self.shown[row], Group):
+            # step over label rows, in the direction the cursor was moving
+            step = 1 if row >= self._last_row else -1
+            target = row + step
+            while 0 <= target < len(self.shown) and isinstance(self.shown[target], Group):
+                target += step
+            if not 0 <= target < len(self.shown):
+                target = row - step
+                while 0 <= target < len(self.shown) and isinstance(self.shown[target], Group):
+                    target -= step
+            if 0 <= target < len(self.shown) and target != row:
+                self._last_row = target
+                self.table.move_cursor(row=target)
+            return
+        self._last_row = row
         self.post_message(self.Highlighted(self, self.selected))
 
     @on(Input.Changed, ".lt-filter")

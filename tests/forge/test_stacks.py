@@ -29,6 +29,12 @@ def test_build_stacks_github_chain_and_local():
         LocalStack("main", ("x", "y"), ("", ""), "ancestry"),  # all have PRs: shown as chain
     ]
     stacks = build_stacks(prs, statuses, local)
+    # a local branch on top of GitHub stack 7 joins it
+    on_top = build_stacks(
+        prs, statuses, [LocalStack("main", ("b", "c", "c2"), ("",) * 3, "gh-stack")]
+    )
+    assert [ly.pr or ly.branch for ly in on_top[0].layers] == [1, 2, 3, "c2"]
+    assert on_top[0].local_layers == 1
     kinds = [(s.kind, s.label, [ly.pr or ly.branch for ly in s.layers]) for s in stacks]
     assert kinds == [
         ("github", "Stack #7", [1, 2, 3]),

@@ -14,6 +14,8 @@ from ...actions.registry import Registry
 # Spelled out on purpose: Mac symbols (⌥ ⇧) read as Command/Super on Linux.
 KEY_DISPLAY = {
     "question_mark": "?",
+    "left_square_bracket": "[",
+    "right_square_bracket": "]",
     "full_stop": ".",
     "ctrl+": "^",
 }

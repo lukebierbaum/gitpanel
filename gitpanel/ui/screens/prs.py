@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,17 +28,19 @@ from ...forge.filters import pr_matches
 from ...forge.github import QUERIES, GitHub, detect
 from ...forge.models import Check, CIState, PRStatus, PullRequest, ReviewThread
 from ...forge.runner import ForgeError
+from ...forge.stacks import Stack, build_stacks
 from ...git import patch as P
 from ...git.graph import GraphRow
 from ...git.log import LogFilter, load_page
 from ...git.markers import PickedMarkers, RefMarkers, collect
+from ...git.stack import LocalStack, local_chains, read_gh_stack
 from ..base import ToolWindow
 from ..colors import CHECK_ICON, CI_ICON, C
-from ..fmt import ago, fmt_duration
+from ..fmt import ago, fmt_duration, plural
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
-from ..widgets.list_table import Col, ListTable, words_match
+from ..widgets.list_table import Col, Group, ListTable, words_match
 from ..widgets.splitter import Splitter
 
 REVIEW = {
@@ -48,6 +51,25 @@ REVIEW = {
 }
 
 
+@dataclass(frozen=True)
+class BranchRow:
+    """A local stack layer that has no PR yet (shown in the Stacks list)."""
+
+    branch: str
+
+
+Item = PullRequest | BranchRow
+
+
+def _name(item: Item) -> str:
+    return item.title if isinstance(item, PullRequest) else item.branch
+
+
+def item_key(item: Item) -> str:
+    return str(item.number) if isinstance(item, PullRequest) else f"branch:{item.branch}"
+
+
+INDEX_TTL = 60.0  # seconds before the all-open-PRs index is fetched again
 DEBOUNCE = 0.2  # seconds the list cursor must rest before a PR's details are fetched
 DETAIL_TTL = 60.0  # cached details younger than this aren't fetched again on highlight
 
@@ -90,12 +112,18 @@ class PRsView(ToolWindow):
         self._pending: Timer | None = None
         self._query = "mine"
         self._searched = ""  # text last sent to GitHub as a search (enter in the filter box)
+        # stacks: every open PR (cheap fields), local stacks, and what was built from them
+        self._index: list[PullRequest] | None = None
+        self._index_at = 0.0
+        self._local: list[LocalStack] = []
+        self._stacks: list[Stack] = []
+        self._layer_at: dict[str, tuple[Stack, int]] = {}  # item key → (stack, layer index)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="pr-main"):
-            yield ListTable[PullRequest](
+            yield ListTable[Item](
                 self._pr_columns(),
-                key=lambda pr: str(pr.number),
+                key=item_key,
                 matches=self._pr_matches,
                 placeholder="/ Filter: words, author:, label:, status:failure, review:approved, "
                 "draft:false — enter searches GitHub",
@@ -111,6 +139,7 @@ class PRsView(ToolWindow):
                 empty=self._empty_text,
                 state_key="prs.list",
                 table_id="pr-list",
+                arrange=self._arrange,
                 id="pr-left",
             )
             yield Splitter("prs.list", "x", minimum=30)
@@ -176,36 +205,200 @@ class PRsView(ToolWindow):
                     )
 
     # -- list columns ------------------------------------------------------------------------
-    def _pr_columns(self) -> list[Col[PullRequest]]:
-        def status(pr: PullRequest) -> tuple[CIState | None, str | None]:
-            st = self._statuses.get(pr.number)
+    def _pr_columns(self) -> list[Col[Item]]:
+        def status(item: Item) -> tuple[CIState | None, str | None]:
+            st = self._statuses.get(item.number) if isinstance(item, PullRequest) else None
             return (st.ci, st.review) if st is not None else (None, None)
 
-        def title(pr: PullRequest) -> Text:
-            t = Text(pr.title, style="dim" if pr.draft else "")
-            if pr.draft:
-                t.append("  draft", style=f"italic {C.purple}")
-            for label in pr.labels[:3]:
-                t.append(f"  {label}", style=C.teal)
+        def title(item: Item) -> Text:
+            t = Text()
+            at = self._layer_at.get(item_key(item))
+            if at is not None and self.pr_list.sort is None:
+                stack, i = at
+                last = i == len(stack.layers) - 1
+                t.append("  " * stack.layers[i].depth + ("└ " if last else "├ "), style="dim")
+            if isinstance(item, BranchRow):
+                t.append(item.branch)
+                t.append("  no PR yet", style="dim italic")
+            else:
+                t.append(item.title, style="dim" if item.draft else "")
+                if item.draft:
+                    t.append("  draft", style=f"italic {C.purple}")
+                for label in item.labels[:3]:
+                    t.append(f"  {label}", style=C.teal)
+            if at is not None:
+                t.append(f"  {at[1] + 1}/{len(at[0].layers)}", style="dim")
             return t
 
+        def pr_only(fn: Any, empty: Any = "") -> Any:
+            return lambda item: fn(item) if isinstance(item, PullRequest) else empty
+
         return [
-            Col("num", "#", 6, lambda pr: Text(f"#{pr.number}", style="bold"),
-                sort=lambda pr: pr.number, descending_first=True),
-            Col("ci", "CI", 4, lambda pr: self._ci_cell(status(pr)[0]),
-                sort=lambda pr: CI_ORDER.get(status(pr)[0] or "", 4)),
-            Col("review", "Review", 9, lambda pr: self._review_cell(status(pr)[1]),
-                sort=lambda pr: REVIEW_ORDER.get(status(pr)[1] or "", 4)
-                if status(pr)[1] is not None else 4),
-            Col("title", "Title", None, title, sort=lambda pr: pr.title.casefold()),
-            Col("author", "Author", 10, lambda pr: pr.author,
-                sort=lambda pr: pr.author.casefold()),
-            Col("updated", "Updated", 9, lambda pr: ago(pr.updated),
-                sort=lambda pr: pr.updated.timestamp() if pr.updated else 0.0,
+            Col("num", "#", 6, pr_only(lambda pr: Text(f"#{pr.number}", style="bold")),
+                sort=pr_only(lambda pr: pr.number, 0), descending_first=True),
+            Col("ci", "CI", 4, pr_only(lambda pr: self._ci_cell(status(pr)[0])),
+                sort=lambda it: CI_ORDER.get(status(it)[0] or "", 4)),
+            Col("review", "Review", 9, pr_only(lambda pr: self._review_cell(status(pr)[1])),
+                sort=lambda it: REVIEW_ORDER.get(status(it)[1] or "", 4)
+                if status(it)[1] is not None else 4),
+            Col("title", "Title", None, title, sort=lambda it: _name(it).casefold()),
+            Col("author", "Author", 10, pr_only(lambda pr: pr.author),
+                sort=pr_only(lambda pr: pr.author.casefold())),
+            Col("updated", "Updated", 9, pr_only(lambda pr: ago(pr.updated)),
+                sort=pr_only(lambda pr: pr.updated.timestamp() if pr.updated else 0.0, 0.0),
                 descending_first=True),
         ]  # fmt: skip
 
-    def _pr_matches(self, pr: PullRequest, text: str) -> bool:
+    # -- stacks ------------------------------------------------------------------------------
+    def _arrange(self, matched: list[Item]) -> list[Item | Group]:
+        """Stacks together under a label row (whole stack kept when one PR matches), then
+        the rest. The Stacks list shows only stacks."""
+        stacks_only = self._query == "stacks"
+        self._update_stacks()
+        if not self.gp.config.pr_stack_view and not stacks_only:
+            return list(matched)
+        by_key = {item_key(i): i for i in self.pr_list.items}
+        rows: list[Item | Group] = []
+        rest: list[Item] = []
+        placed: set[str] = set()
+        shown_keys: set[str] = set()
+        for item in matched:
+            at = self._layer_at.get(item_key(item))
+            if at is None:
+                rest.append(item)
+                continue
+            stack = at[0]
+            if stack.key in placed:
+                continue
+            placed.add(stack.key)
+            rows.append(self._stack_group(stack))
+            for layer in stack.layers:
+                key = str(layer.pr) if layer.pr is not None else f"branch:{layer.branch}"
+                if key in by_key and key not in shown_keys:
+                    rows.append(by_key[key])
+                    shown_keys.add(key)
+        if stacks_only:
+            return rows
+        if rows and rest:
+            rows.append(Group("group:rest", Text("Not in a stack", style=f"bold {C.other}")))
+        return rows + rest
+
+    def _update_stacks(self) -> None:
+        listed = [i for i in self.pr_list.items if isinstance(i, PullRequest)]
+        pool = {p.number: p for p in (self._index or [])}
+        pool.update({p.number: p for p in listed})
+        local = self._local if self._query == "stacks" else []
+        self._stacks = build_stacks(list(pool.values()), self._statuses, local)
+        self._layer_at = {}
+        for stack in self._stacks:
+            for i, layer in enumerate(stack.layers):
+                key = str(layer.pr) if layer.pr is not None else f"branch:{layer.branch}"
+                self._layer_at.setdefault(key, (stack, i))
+
+    def _stack_group(self, stack: Stack) -> Group:
+        """The label row above a stack: kind in the Title column, size and base beside it."""
+        size = len(stack.layers)
+        if stack.kind == "github":
+            label = Text(stack.label, style=f"bold {C.other}")
+            info = self._statuses.get(stack.layers[0].pr) if stack.layers[0].pr else None
+            if info is not None and info.stack is not None:
+                size = max(size, info.stack.size)
+        else:
+            label = Text(f"⚠ {stack.label[0].upper()}{stack.label[1:]}", style=f"bold {C.warn}")
+        n_prs = len(stack.prs)
+        if stack.kind == "github":
+            n_prs = max(n_prs, size - stack.local_layers)
+        count = plural(n_prs, "PR")
+        if stack.local_layers:
+            count += f" + {stack.local_layers}"
+        return Group(
+            f"group:{stack.key}",
+            label,
+            (
+                ("author", Text(count, style="dim")),
+                ("updated", Text(f"→ {stack.base}", style="dim")),
+            ),
+        )
+
+    def stack_of(self, pr: PullRequest | None) -> tuple[Stack, int] | None:
+        return self._layer_at.get(str(pr.number)) if pr is not None else None
+
+    def _stack_strip(self, pr: PullRequest) -> Text | None:
+        at = self.stack_of(pr)
+        if at is None:
+            return None
+        stack, i = at
+        t = Text()
+        if stack.kind == "github":
+            t.append(stack.label, style=f"bold {C.other}")
+        else:
+            t.append(f"⚠ {stack.label}", style=f"bold {C.warn}")
+        t.append(f"  {stack.base}", style="dim")
+        for j, layer in enumerate(stack.layers):
+            t.append(" ← ", style="dim")
+            name = f"#{layer.pr}" if layer.pr is not None else layer.branch
+            st = self._statuses.get(layer.pr) if layer.pr is not None else None
+            if j == i:
+                t.append(f" {name} ", style=f"bold reverse {C.current}")
+            else:
+                t.append(name, style="bold" if layer.pr is not None else "dim italic")
+            if st is not None and st.ci != "none":
+                icon, color = CI_ICON[st.ci]
+                t.append(f" {icon}", style=C[color])
+        t.append(f"   {i + 1} of {len(stack.layers)}  ·  [ ] move", style="dim")
+        return t
+
+    def stack_move(self, delta: int) -> None:
+        """Select the PR below (-1) / above (+1) the current one in its stack."""
+        at = self.stack_of(self.detail)
+        if at is None:
+            return
+        stack, i = at
+        j = i + delta
+        if not 0 <= j < len(stack.layers):
+            self.gp.notify("Top of the stack" if delta > 0 else "Bottom of the stack", timeout=2)
+            return
+        layer = stack.layers[j]
+        key = str(layer.pr) if layer.pr is not None else f"branch:{layer.branch}"
+        listing = self.pr_list
+        row = next((r for r, it in enumerate(listing.shown) if not isinstance(it, Group)
+                    and item_key(it) == key), None)  # fmt: skip
+        if row is not None:
+            listing.table.move_cursor(row=row)
+        elif layer.pr is not None:
+            self._select(layer.pr, force=True)
+
+    @work(exclusive=True, group="prs-index")
+    async def load_index(self, *, force: bool = False) -> None:
+        """All open PRs (cheap fields): finds chains and stacks beyond the current list."""
+        if self.provider is None:
+            return
+        if not force and self._index is not None and time.monotonic() - self._index_at < INDEX_TTL:
+            return
+        try:
+            index = await self.provider.open_pr_index()
+        except ForgeError:
+            return
+        self._index, self._index_at = index, time.monotonic()
+        self.pr_list.refresh_rows()
+
+    async def _load_local_stacks(self) -> list[LocalStack]:
+        session = self.gp.session
+        if session is None or self.provider is None:
+            return []
+        recorded = read_gh_stack(session)
+        info = await self.provider.repo()
+        remote = await self.provider.remote_name()
+        trunk = f"refs/remotes/{remote}/{info.default_branch}"
+        if not await session.git.try_rev_parse(trunk):
+            trunk = info.default_branch
+        known = {b for st in recorded for b in st.branches}
+        return recorded + await local_chains(session.git, trunk, exclude=known)
+
+    def _pr_matches(self, item: Item, text: str) -> bool:
+        if isinstance(item, BranchRow):
+            return words_match(text, item.branch)
+        pr = item
         # text GitHub already searched for is left to GitHub (it also matches descriptions,
         # which the list doesn't have)
         if text == self._searched.strip():
@@ -216,17 +409,23 @@ class PRsView(ToolWindow):
 
     def _empty_text(self, text: str) -> str:
         label = QUERIES.get(self._query, ("", ""))[0]
+        if self._query == "stacks" and not text:
+            return (
+                "No stacks in this repository yet.\n\nStacks are PRs built on each other: "
+                "GitHub stacks (gh stack), PRs whose base is another PR's branch, and local "
+                "branches stacked with gh stack init."
+            )
         if text:
             return f"No pull requests in “{label}” match “{text}”."
         return f"No pull requests in “{label}”."
 
     @property
-    def pr_list(self) -> ListTable[PullRequest]:
+    def pr_list(self) -> ListTable[Item]:
         return self.query_one("#pr-left", ListTable)
 
     @property
     def prs(self) -> list[PullRequest]:
-        return self.pr_list.items
+        return [i for i in self.pr_list.items if isinstance(i, PullRequest)]
 
     @staticmethod
     def _check_icon(c: Check) -> Text:
@@ -258,6 +457,8 @@ class PRsView(ToolWindow):
             self._lists.clear()
             self._statuses.clear()
             self._details.clear()
+            self._index = None
+            self._local = []
         listing = self.pr_list
         if self.provider is None:
             listing.show_message(
@@ -277,29 +478,60 @@ class PRsView(ToolWindow):
             self._fill_list(cached, query, keep)
         listing.set_note("loading…")
         try:
-            prs = await self.provider.list_prs(query, search)
+            if query == "stacks":
+                prs = await self.provider.open_pr_index()
+                self._index, self._index_at = prs, time.monotonic()
+                self._local = await self._load_local_stacks()
+            else:
+                prs = await self.provider.list_prs(query, search)
         except ForgeError as e:
             listing.show_message(f"{e}\n\n{e.hint}" if e.hint else str(e))
             listing.set_note("")
             return
-        self._lists[key] = prs
+        items: list[Item] = list(prs)
+        if query == "stacks":
+            have = {p.head for p in prs if not p.cross_repo}
+            items += [BranchRow(b) for st in self._local for b in st.branches if b not in have]
+        self._lists[key] = items  # type: ignore[assignment]
         listing.show_message(None)
         listing.set_note(f"updated {datetime.now():%H:%M}")
-        self._fill_list(prs, query, keep, force=True)
+        self._fill_list(items, query, keep, force=True)
         self.load_statuses([p.number for p in prs])
+        if query != "stacks":
+            self.load_index()
 
     def _fill_list(
-        self, prs: list[PullRequest], query: str, keep: int | None, *, force: bool = False
+        self, items: list[Item], query: str, keep: int | None, *, force: bool = False
     ) -> None:
         self._query = query
         current = self.detail.number if self.detail else None
-        self.pr_list.set_items(prs, keep=str(keep or current) if (keep or current) else None)
+        self.pr_list.set_items(items, keep=str(keep or current) if (keep or current) else None)
         selected = self.pr_list.selected
-        if selected is not None:
+        if isinstance(selected, PullRequest):
             self._select(selected.number, force=force)
         else:
-            self.detail = None
-            self._clear_detail()
+            self._show_branch(selected)
+
+    def _show_branch(self, row: BranchRow | None) -> None:
+        """A list row without a PR: say what it is instead of PR details."""
+        self.detail = None
+        self._clear_detail()
+        if row is None:
+            return
+        at = self._layer_at.get(item_key(row))
+        t = Text(row.branch, style="bold")
+        t.append("\nNo pull request yet", style="dim")
+        if at is not None:
+            stack, i = at
+            if stack.kind == "local":
+                t.append(f" — layer {i + 1} of {len(stack.layers)} of a local stack", style="dim")
+                t.append(" (not a GitHub stack yet)", style=C.warn)
+            else:
+                t.append(f" — layer {i + 1} of {len(stack.layers)} on top of ", style="dim")
+                t.append(stack.label, style=C.other)
+                t.append(" (not on GitHub yet)", style=C.warn)
+        self.query_one("#pr-meta", Static).update(t)
+        self.gp.refresh_hints()
 
     @staticmethod
     def _ci_cell(ci: CIState | None) -> Text:
@@ -342,8 +574,10 @@ class PRsView(ToolWindow):
 
     @on(ListTable.Highlighted, "#pr-left")
     def _row(self, event: ListTable.Highlighted) -> None:
-        if event.item is not None:
+        if isinstance(event.item, PullRequest):
             self._select(event.item.number)
+        elif isinstance(event.item, BranchRow):
+            self._show_branch(event.item)
         self.gp.refresh_hints()
 
     def _select(self, number: int, *, force: bool = False) -> None:
@@ -411,6 +645,10 @@ class PRsView(ToolWindow):
 
     def _render_overview(self, pr: PullRequest) -> None:
         t = Text()
+        strip = self._stack_strip(pr)
+        if strip is not None:
+            t.append_text(strip)
+            t.append("\n")
         t.append(f"#{pr.number} {pr.title}\n", style="bold")
         state_color = {"OPEN": C.green, "MERGED": C.purple, "CLOSED": C.red}.get(pr.state, "")
         t.append(f"{pr.state.lower()}{' · draft' if pr.draft else ''}", style=f"bold {state_color}")
@@ -609,6 +847,8 @@ class PRsView(ToolWindow):
         if event == "prs.refresh":
             self._select_after = data.get("select")
             self.reload()
+        elif event == "prs.stack_move":
+            self.stack_move(int(data.get("delta", 1)))
         elif event == "prs.threads":
             self.reload_threads()
 
@@ -619,6 +859,9 @@ class PRsView(ToolWindow):
         pr = self.detail
         if pr is not None:
             form["pr"] = pr
+            at = self.stack_of(pr)
+            if at is not None:
+                form["stack"], form["stack_index"] = at
         if focused is self.query_one("#pr-list", DataTable):
             form["where"] = "list"
         elif focused is self.query_one("#pr-checks", DataTable) and pr is not None:
@@ -647,4 +890,6 @@ class PRsView(ToolWindow):
 
     def hint_extras(self) -> list[tuple[str, str]]:
         hints = [h for lt in self.query(ListTable) for h in lt.hints()]
+        if self.stack_of(self.detail) is not None:
+            hints.append(("[ ]", "stack"))
         return [*hints, ("tab", "next pane")]

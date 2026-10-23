@@ -189,6 +189,9 @@ def pr_repo(base: Path) -> Path:
             }
         )  # fmt: skip
     git(repo, "switch", "-q", "main")
+    by_number = {p["number"]: p for p in prs}
+    by_number[47]["baseRefName"] = "feature/streaming"
+    by_number[44]["baseRefName"] = "feature/cli-json"
     prs[0]["body"] = (
         "Builds tokens lazily so `parse_all()` can handle files that don't fit in memory.\n\n"
         "- `tokenize()` is now a generator\n- `parse_all()` streams line by line\n\n"
@@ -222,6 +225,8 @@ def pr_repo(base: Path) -> Path:
                 },  # fmt: skip
                 "prs": prs,
                 "threads": {},
+                # #45 → #44 is a GitHub stack; #48 → #47 chain but aren't linked yet
+                "stacks": [{"number": 3, "base": "main", "prs": [45, 44]}],
                 "calls": [],
             }
         )

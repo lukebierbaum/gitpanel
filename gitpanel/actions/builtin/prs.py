@@ -382,6 +382,13 @@ async def _resolve(env: ActionEnv) -> None:
     env.ui.post("prs.threads")
 
 
+def _stack_move(delta: int):  # type: ignore[no-untyped-def]
+    async def run(env: ActionEnv) -> None:
+        env.ui.post("prs.stack_move", delta=delta)
+
+    return run
+
+
 async def _show_prs(env: ActionEnv) -> None:
     env.ui.open_screen("prs")
 
@@ -434,6 +441,22 @@ def actions() -> list[Action]:
             group="Pull request",
             screens=frozenset({"branches", "log"}),
             mutating=True,
+        ),
+        a(
+            "pr.stack_down",
+            "Stack: PR Below",
+            _stack_move(-1),
+            "left_square_bracket",
+            lambda c: c.form.get("stack") is not None,
+            group="Stack",
+        ),
+        a(
+            "pr.stack_up",
+            "Stack: PR Above",
+            _stack_move(1),
+            "right_square_bracket",
+            lambda c: c.form.get("stack") is not None,
+            group="Stack",
         ),
         a("pr.review", "Review…", _review, "r"),
         a("pr.comment", "Comment…", _comment, "m"),

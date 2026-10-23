@@ -24,6 +24,7 @@ branch_folders = true        # group feature/x, release/y … into folders in th
 refresh_seconds = 180        # refresh the PR window this often while it's visible (0 = manual)
 default_query = "mine"       # mine | review | assigned | open | closed
 merge_method = "squash"      # squash | merge | rebase
+stack_view = true            # keep stacked PRs together in the PR list
 
 [worktrees]
 path_template = "../{repo}.worktrees/{branch}"   # relative to the main worktree
@@ -57,6 +58,7 @@ class Config:
     branch_folders: bool = True
     pr_refresh_seconds: int = 180
     pr_default_query: str = "mine"
+    pr_stack_view: bool = True
     merge_method: str = "squash"
     diff_context: int = 3
     diff_full_file: bool = False
@@ -96,6 +98,7 @@ def _merge(cfg: Config, data: dict[str, Any], origin: str) -> None:
     get("log", "branch_folders", bool, "branch_folders")
     get("prs", "refresh_seconds", int, "pr_refresh_seconds")
     get("prs", "default_query", str, "pr_default_query")
+    get("prs", "stack_view", bool, "pr_stack_view")
     get("prs", "merge_method", str, "merge_method")
     get("diff", "context", int, "diff_context")
     get("diff", "full_file", bool, "diff_full_file")

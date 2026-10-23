@@ -39,6 +39,7 @@ QUERIES: dict[str, tuple[str, str]] = {
     "assigned": ("Assigned", "assignee:@me"),
     "open": ("All open", ""),
     "closed": ("Closed", ""),
+    "stacks": ("Stacks", ""),  # every stack in the repository (see PRsView)
 }
 Verdict = Literal["approve", "request-changes", "comment"]
 MergeMethod = Literal["merge", "squash", "rebase"]

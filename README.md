@@ -147,6 +147,7 @@ Needs the [GitHub CLI](https://cli.github.com) (`gh auth login`). Lists *Mine ·
 
 | Key | |
 |---|---|
+| stacks | stacked PRs are kept together under a label — **`Stack #7`** for GitHub stacks (`gh stack`), **`⚠ Not a GitHub stack yet`** for PRs whose bases chain onto each other or local branches stacked with `gh stack init`; the *Stacks* list shows every stack in the repo, and `[` / `]` move down / up a stack |
 | `/` | filter the list as you type — words, `author:` `label:` `base:` `head:` `status:failure` `review:approved` `draft:false`, `-` to exclude; `enter` runs it as a GitHub search, `escape` clears |
 | `>` / `<` | sort by the next column / reverse it (or click a column header; again to reverse) |
 | `enter` | check out the PR (Smart / Force Checkout if local changes are in the way) |
@@ -183,6 +184,7 @@ branch_folders = true          # group feature/x, release/y … in the branches 
 refresh_seconds = 180          # refresh the PR window while it's visible (0 = manual)
 default_query = "mine"         # mine | review | assigned | open | closed
 merge_method = "squash"        # default in the merge dialog
+stack_view = true              # keep stacked PRs together in the list
 
 [worktrees]
 path_template = "../{repo}.worktrees/{branch}"

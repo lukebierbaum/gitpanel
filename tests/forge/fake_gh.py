@@ -8,6 +8,7 @@ Git operations (checkout, create) act on real repositories.
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
@@ -23,8 +24,11 @@ def load() -> dict:
 
 
 def save(state: dict) -> None:
-    with open(STATE, "w") as f:
+    # atomic: concurrent fake gh processes never see a half-written file
+    tmp = f"{STATE}.{os.getpid()}"
+    with open(tmp, "w") as f:
         json.dump(state, f, indent=1)
+    os.replace(tmp, STATE)
 
 
 def opt(args: list[str], name: str, default: str | None = None) -> str | None:
@@ -82,6 +86,10 @@ def matches(pr: dict, state: dict, search: str) -> bool:
 
 
 def main(argv: list[str]) -> None:
+    # one fake gh at a time (the app runs several concurrently): each reads, changes and
+    # writes the whole state file
+    lock = open(f"{STATE}.lock", "w")  # noqa: SIM115 - held until the process exits
+    fcntl.flock(lock, fcntl.LOCK_EX)
     state = load()
     state.setdefault("calls", []).append(argv)
     save(state)
