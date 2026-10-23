@@ -19,7 +19,9 @@ class Marker:
     style: str = ""  # theme token / CSS class suffix
     dims_row: bool = False
     order: int = 50  # lower sorts first
-    node_color: str | None = None  # tint the commit's graph node (an empty label shows no badge)
+    # tint the commit's graph node: a colour name the UI resolves per theme ("unpushed",
+    # "incoming"; see ui/colors.py). An empty label shows no badge.
+    node_color: str | None = None
 
 
 class MarkerProvider(Protocol):
@@ -146,10 +148,6 @@ class BisectMarkers:
         return {k: v for k, v in out.items() if k in wanted}
 
 
-UNPUSHED = "#E3B23C"  # amber: on a local branch, on no remote
-INCOMING = "#A66BE0"  # purple: on a remote branch, on no local branch
-
-
 async def refs_state(git: Git) -> str:
     """Cheap fingerprint of HEAD + all branch/remote/tag tips (changes when any ref moves)."""
     res = await git.run(
@@ -203,9 +201,9 @@ class SyncMarkers:
         out: dict[str, list[Marker]] = {}
         for sha in shas:
             if sha in local_only:
-                out[sha] = [Marker("unpushed", "", "unpushed", order=60, node_color=UNPUSHED)]
+                out[sha] = [Marker("unpushed", "", "unpushed", order=60, node_color="unpushed")]
             elif sha in remote_only:
-                out[sha] = [Marker("incoming", "", "incoming", order=60, node_color=INCOMING)]
+                out[sha] = [Marker("incoming", "", "incoming", order=60, node_color="incoming")]
         return out
 
 

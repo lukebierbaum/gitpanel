@@ -22,20 +22,28 @@ from textual.widgets import Static
 from ...actions.context import SelectionContext
 from ...actions.registry import Registry
 from ...git.history import BlameLine, blame
+from ..colors import C
 from ..widgets.key_hints import KeyHints
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
 
 # age colours: newest green → oldest purple
-AGE_COLORS = ["#6CCB3A", "#7FC14A", "#93B65A", "#A7A86C", "#A88E8E", "#A77AAE", "#A66BE0"]
+AGE_STEPS = 7
+
+
+def _blend(a: str, b: str, f: float) -> str:
+    ca = [int(a[i : i + 2], 16) for i in (1, 3, 5)]
+    cb = [int(b[i : i + 2], 16) for i in (1, 3, 5)]
+    return "#" + "".join(f"{round(x + (y - x) * f):02X}" for x, y in zip(ca, cb, strict=True))
 
 
 def age_color(t: datetime | None, newest: datetime, oldest: datetime) -> str:
     if t is None or newest <= oldest:
-        return AGE_COLORS[0]
+        return C.green
     frac = (newest - t).total_seconds() / max((newest - oldest).total_seconds(), 1)
-    return AGE_COLORS[min(int(frac * len(AGE_COLORS)), len(AGE_COLORS) - 1)]
+    step = min(int(frac * AGE_STEPS), AGE_STEPS - 1)
+    return _blend(C.green, C.purple, step / (AGE_STEPS - 1))
 
 
 class BlameView(ScrollView, can_focus=True):
@@ -130,7 +138,7 @@ class BlameView(ScrollView, can_focus=True):
         cs = self.get_component_rich_style
         if ln.uncommitted:
             gutter = "  not committed yet          " if first_of_block else " " * 29
-            gstyle = Style(color="#E3B23C", italic=True)
+            gstyle = Style(color=C.amber, italic=True)
         elif first_of_block:
             date = ln.time.astimezone().strftime("%Y-%m-%d") if ln.time else ""
             gutter = f" {ln.sha[:8]} {ln.author[:8]:<8} {date} "
@@ -204,9 +212,9 @@ class AnnotateScreen(Screen[None]):
             ln = view.lines[view.cursor]
             t.append("\n")
             if ln.uncommitted:
-                t.append("Not committed yet", style="#E3B23C")
+                t.append("Not committed yet", style=C.amber)
             else:
-                t.append(f"{ln.sha[:10]} ", style="bold #6CCB3A")
+                t.append(f"{ln.sha[:10]} ", style=f"bold {C.green}")
                 t.append(f"{ln.author} · {ln.summary}", style="dim")
         self.query_one("#ann-header", Static).update(t)
 

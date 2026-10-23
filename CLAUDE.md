@@ -39,6 +39,7 @@ Add dependencies with `pixi add <pkg>` (conda-forge) or `pixi add --pypi <pkg>` 
 - Async everywhere in backend (`async def`), dataclasses (frozen where practical) for models, `StrEnum`/`Flag` for enums.
 - Type hints on all public functions; ruff config in `pyproject.toml` (line length 100).
 - Action ids: `<area>.<verb>` (`log.cherry_pick`, `worktree.add`); custom commands `custom.<id>`.
+- Colours come from `ui/colors.py` (`C.added`, `C.unpushed`, `C[name]` …), looked up at render time so they follow the theme — no hex literals elsewhere. The git layer names a meaning (`node_color="unpushed"`), never a colour.
 - Table-like lists use `ui/widgets/list_table.py` `ListTable` (describe `Col`s, call `set_items`, read `selected`) — never a bare `DataTable` — so every list gets `/` filter, `>`/`<` and header-click sort, remembered order and a flexible column. Screens add `listing.hints()` to their hint extras.
 - Widget bindings that only sometimes apply (e.g. `escape` clearing a selection) raise `textual.actions.SkipAction` when there's nothing to do, so the key reaches the screen.
 - Key defaults follow PyCharm where the terminal allows (e.g. `ctrl+k` commit); document deviations next to the action.

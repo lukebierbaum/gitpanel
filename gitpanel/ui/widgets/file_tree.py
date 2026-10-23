@@ -15,6 +15,7 @@ from ...actions.context import FileGroup, FileRef
 from ...git import patch as P
 from ...git.changelists import Changelists
 from ...git.models import ChangeType, FileStatus, RepoStatus
+from ..colors import C
 
 GROUPS: list[tuple[FileGroup, str]] = [
     ("conflict", "Merge Conflicts"),
@@ -23,15 +24,15 @@ GROUPS: list[tuple[FileGroup, str]] = [
     ("untracked", "Unversioned Files"),
 ]
 
-STATUS_STYLE = {
-    ChangeType.ADDED: "#6CCB3A",
-    ChangeType.MODIFIED: "#B58CE8",
-    ChangeType.DELETED: "red",
-    ChangeType.RENAMED: "cyan",
-    ChangeType.COPIED: "cyan",
-    ChangeType.TYPE_CHANGED: "magenta",
-    ChangeType.UNMERGED: "bold red",
-    ChangeType.UNTRACKED: "yellow",
+STATUS_STYLE = {  # colour names (see ui/colors.py); others are plain Rich styles
+    ChangeType.ADDED: "added",
+    ChangeType.MODIFIED: "modified",
+    ChangeType.DELETED: "removed",
+    ChangeType.RENAMED: "renamed",
+    ChangeType.COPIED: "renamed",
+    ChangeType.TYPE_CHANGED: "purple",
+    ChangeType.UNMERGED: "fail",
+    ChangeType.UNTRACKED: "amber",
 }
 
 
@@ -83,8 +84,9 @@ def file_label(ref: FileRef) -> Text:
     name = posixpath.basename(ref.path)
     folder = posixpath.dirname(ref.path)
     t = Text()
-    t.append(f"{change.value} ", style=STATUS_STYLE.get(change, ""))
-    t.append(name, style=STATUS_STYLE.get(change, ""))
+    style = C[STATUS_STYLE.get(change, "")]
+    t.append(f"{change.value} ", style=style)
+    t.append(name, style=style)
     if ref.status and ref.status.orig_path and ref.group == "staged":
         t.append(f"  ← {ref.status.orig_path}", style="dim")
     if folder:

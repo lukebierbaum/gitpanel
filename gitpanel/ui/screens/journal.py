@@ -14,14 +14,12 @@ from textual.widgets import DataTable, Static
 from ...actions.context import SelectionContext
 from ...actions.registry import Registry
 from ...git.journal import JournalEntry
+from ..colors import C
 from ..widgets.key_hints import KeyHints
 from ..widgets.list_table import Col, ListTable
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
-
-GREEN = "#6CCB3A"
-PURPLE = "#A66BE0"
 
 
 def describe_refs(e: JournalEntry) -> Text:
@@ -33,9 +31,9 @@ def describe_refs(e: JournalEntry) -> Text:
         if i:
             t.append("  ")
         if before is None:
-            t.append(f"+{name}", style=GREEN)
+            t.append(f"+{name}", style=C.green)
         elif after is None:
-            t.append(f"-{name}", style="#E5484D")
+            t.append(f"-{name}", style=C.red)
         else:
             t.append(f"{name} ", style="bold")
             t.append(f"{before[:7]}→{after[:7]}", style="dim")
@@ -54,9 +52,9 @@ def _state(e: JournalEntry) -> Text:
     if e.undone:
         state.append("undone ", style="italic dim")
     if e.failed:
-        state.append("failed ", style="#E5484D")
+        state.append("failed ", style=C.red)
     if e.backup:
-        state.append("⛁ backup", style=PURPLE)
+        state.append("⛁ backup", style=C.purple)
     return state
 
 

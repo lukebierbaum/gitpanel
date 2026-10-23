@@ -26,6 +26,7 @@ from ..git.operations import OperationState, detect
 from ..git.runner import GitError
 from ..git.session import ChangeKind, RepoSession
 from ..git.status import status
+from .colors import CI_ICON, C
 from .dialogs import (
     ChooseDialog,
     ConfirmDialog,
@@ -51,7 +52,7 @@ from .screens.rebase_editor import RebaseEditorScreen
 from .screens.resolver import ResolverScreen
 from .screens.shelf import ShelfView
 from .screens.worktrees import WorktreesView
-from .theme import DEFAULT_THEME, HULK_GREEN, THEMES
+from .theme import DEFAULT_THEME, THEMES
 from .widgets.branch_panel import BranchPanel
 from .widgets.diff_view import DiffView
 from .widgets.key_hints import KeyHints, pretty_key
@@ -127,6 +128,11 @@ class GitPanelApp(App[None]):
             yield ConsoleView()
             yield PRsView()
         yield KeyHints(id="hints")
+
+    def watch_theme(self, theme: str) -> None:
+        # gitpanel's own colours (ui/colors.py) follow the theme's light/dark
+        C.use(self.current_theme.dark)
+        self.refresh(layout=False)
 
     async def on_mount(self) -> None:
         try:
@@ -233,26 +239,19 @@ class GitPanelApp(App[None]):
         wt = self.session.active
         t = Text()
         t.append("gitpanel ", style="bold")
-        t.append(f" {self.session.common_dir.parent.name} ", style=f"bold #101410 on {HULK_GREEN}")
+        t.append(f" {self.session.common_dir.parent.name} ", style=f"bold {C.ink} on {C.green}")
         t.append("  ⎇ ")
-        t.append(
-            branch or f"detached @ {head[:8] if head else 'unborn'}", style=f"bold {HULK_GREEN}"
-        )
+        t.append(branch or f"detached @ {head[:8] if head else 'unborn'}", style=f"bold {C.green}")
         if upstream:
             t.append(f"  ↑{ahead} ↓{behind}", style="dim")
         if not wt.is_main:
             t.append(f"   worktree: {wt.path}", style="italic")
         badge_branch, pr, _ = self._pr_badge
         if pr is not None and badge_branch == branch:
-            icon, color = {
-                "success": ("✓", "#6CCB3A"),
-                "failure": ("✗", "#E5484D"),
-                "pending": ("●", "#E3B23C"),
-                "none": ("", ""),
-            }[pr.ci]
+            icon, color = CI_ICON[pr.ci]
             t.append(f"   PR #{pr.number}", style="bold")
-            if icon:
-                t.append(f" {icon}", style=f"bold {color}")
+            if pr.ci != "none":
+                t.append(f" {icon}", style=f"bold {C[color]}")
         self._header_args = (branch, head, ahead, behind, upstream)
         self.query_one(Header).update(t)
         self._maybe_refresh_badge(branch)

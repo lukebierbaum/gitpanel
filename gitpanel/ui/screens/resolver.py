@@ -22,13 +22,11 @@ from textual.widgets import Static
 from ...actions.context import Scope, SelectionContext
 from ...actions.registry import Registry
 from ...git import conflicts as CF
+from ..colors import C
 from ..widgets.key_hints import KeyHints
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
-
-GREEN = "#6CCB3A"
-PURPLE = "#A66BE0"
 
 
 @dataclass(frozen=True)
@@ -217,16 +215,16 @@ class ResolverScreen(Screen[None]):
         t.append(f"{self.path}", style="bold")
         n = len(self.model.chunks)
         un = self.model.unresolved
-        t.append(f"   {n - un}/{n} resolved", style=GREEN if un == 0 else "#E3B23C")
+        t.append(f"   {n - un}/{n} resolved", style=C.green if un == 0 else C.amber)
         if self.model.chunks:
             t.append(f"   chunk {self.query_one(ThreeWayView).current + 1}", style="dim")
         t.append("\n")
         w = max((self.size.width - 4) // 3, 8)  # header has 1 cell of padding each side
-        t.append(self.labels.ours[:w].ljust(w), style=f"bold {GREEN}")
+        t.append(self.labels.ours[:w].ljust(w), style=f"bold {C.green}")
         t.append(" ")
         t.append("Result"[:w].center(w), style="bold")
         t.append(" ")
-        t.append(self.labels.theirs[:w].rjust(w), style=f"bold {PURPLE}")
+        t.append(self.labels.theirs[:w].rjust(w), style=f"bold {C.purple}")
         self.query_one("#res-header", Static).update(t)
 
     def on_three_way_view_chunk_changed(self) -> None:

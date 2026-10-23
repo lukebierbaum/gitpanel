@@ -16,9 +16,7 @@ from textual.widgets.tree import TreeNode
 
 from ...git.models import Ref
 from ...git.refs import BranchRef
-
-GREEN = "#6CCB3A"
-PURPLE = "#A66BE0"
+from ..colors import C
 
 Kind = Literal["all", "head", "ref", "group"]
 
@@ -92,7 +90,7 @@ class BranchPanel(Tree[PanelItem]):
         self.marked = {k: f for k, f in self.marked.items() if k in known}
 
         self.root.add_leaf(Text("All branches", style="bold"), PanelItem("all", key="all"))
-        head_label = Text("HEAD", style=f"bold {GREEN}")
+        head_label = Text("HEAD", style=f"bold {C.green}")
         head_label.append(
             f"  {current.removeprefix('refs/heads/') if current else 'detached'}", style="dim"
         )
@@ -114,7 +112,7 @@ class BranchPanel(Tree[PanelItem]):
             remote_node = self._group("Remote", "group:remote", sum(map(len, by_remote.values())))
             for remote in sorted(by_remote):
                 sub = remote_node.add(
-                    Text(remote, style=PURPLE),
+                    Text(remote, style=C.purple),
                     PanelItem("group", key=f"group:remote:{remote}"),
                     expand=f"group:remote:{remote}" not in self._collapsed,
                 )
@@ -143,7 +141,7 @@ class BranchPanel(Tree[PanelItem]):
             key = f"dir:{scope}:{strip}{name}"
             holds_focus = any(r.name == current or r.name in self.marked for r in items)
             expand = key in self._expanded or (holds_focus and key not in self._collapsed)
-            label = Text.assemble((name, f"bold {PURPLE}"), (f"  {len(items)}", "dim"))
+            label = Text.assemble((name, f"bold {C.purple}"), (f"  {len(items)}", "dim"))
             folder = parent.add(label, PanelItem("group", key=key), expand=expand)
             self._add_nested(folder, items, f"{strip}{name}/", scope)
         tag_order = scope == "tags"
@@ -159,29 +157,29 @@ class BranchPanel(Tree[PanelItem]):
             )
 
     def _group(self, title: str, key: str, count: int) -> TreeNode[PanelItem]:
-        label = Text.assemble((title, f"bold {PURPLE}"), (f"  {count}", "dim"))
+        label = Text.assemble((title, f"bold {C.purple}"), (f"  {count}", "dim"))
         return self.root.add(label, PanelItem("group", key=key), expand=key not in self._collapsed)
 
     def _label(self, ref: Any, strip: str = "") -> Text:
         t = Text()
         marked = ref.name in self.marked
         is_current = ref.name == self._data.get("current")
-        t.append("▣ " if marked else "  ", style=f"bold {GREEN}")
+        t.append("▣ " if marked else "  ", style=f"bold {C.green}")
         # a space after each symbol: fonts often draw ★ ● wider than one cell
-        t.append("★ " if ref.name in self._data.get("favorites", set()) else "  ", style="#E3B23C")
-        t.append("● " if is_current else "  ", style=GREEN)
-        t.append(ref.short.removeprefix(strip), style=f"bold {GREEN}" if is_current else "")
+        t.append("★ " if ref.name in self._data.get("favorites", set()) else "  ", style=C.amber)
+        t.append("● " if is_current else "  ", style=C.green)
+        t.append(ref.short.removeprefix(strip), style=f"bold {C.green}" if is_current else "")
         if isinstance(ref, BranchRef):
             wt = ref.worktree
             if wt is not None and wt.resolve() != self._data.get("active"):
-                t.append(" ⎇", style="#3FB8AF")
+                t.append(" ⎇", style=C.teal)
             if ref.ahead or ref.behind:
                 t.append(f" ↑{ref.ahead}↓{ref.behind}", style="dim")
             if ref.is_local and self._data.get("has_remotes"):
                 if ref.gone:
                     t.append(" upstream gone", style="dim italic")
                 elif ref.upstream is None:
-                    t.append(" local", style="#E3B23C")  # never pushed / no upstream
+                    t.append(" local", style=C.amber)  # never pushed / no upstream
         return t
 
     def _restore(self, prev: str | None) -> None:

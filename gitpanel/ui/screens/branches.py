@@ -18,13 +18,11 @@ from ...actions.registry import Registry
 from ...git import refs as R
 from ...git import tags as T
 from ...git.models import Ref
+from ..colors import C
 from ..widgets.key_hints import KeyHints
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
-
-GREEN = "#6CCB3A"
-PURPLE = "#A66BE0"
 
 
 def _matches(query: str, name: str) -> bool:
@@ -122,7 +120,7 @@ class BranchesPopup(ModalScreen[None]):
             shown = [r for r in items if _matches(query, r.short)]
             if not shown:
                 continue
-            ol.add_option(Option(Text(title, style=f"bold {PURPLE}"), disabled=True))
+            ol.add_option(Option(Text(title, style=f"bold {C.purple}"), disabled=True))
             for ref in shown:
                 oid = f"{title}:{ref.name}"
                 self._refs[oid] = ref
@@ -141,16 +139,16 @@ class BranchesPopup(ModalScreen[None]):
         t = Text()
         favs = self._data.get("favorites", set())
         is_current = ref.name == self._data.get("current")
-        t.append("★ " if ref.name in favs else "  ", style="#E3B23C")
-        t.append("● " if is_current else "  ", style=GREEN)
-        t.append(ref.short, style=f"bold {GREEN}" if is_current else "")
+        t.append("★ " if ref.name in favs else "  ", style=C.amber)
+        t.append("● " if is_current else "  ", style=C.green)
+        t.append(ref.short, style=f"bold {C.green}" if is_current else "")
         if isinstance(ref, Ref):  # tag
             return t
         wt = ref.worktree
         if wt is not None and wt.resolve() != self._data.get("active"):
-            t.append(f"  ⎇ {wt.name}", style="italic #3FB8AF")
+            t.append(f"  ⎇ {wt.name}", style=f"italic {C.teal}")
         if ref.ahead or ref.behind:
-            t.append(f"  ↑{ref.ahead} ↓{ref.behind}", style=PURPLE)
+            t.append(f"  ↑{ref.ahead} ↓{ref.behind}", style=C.purple)
         if ref.gone:
             t.append("  upstream gone", style="dim italic")
         elif ref.upstream_short:

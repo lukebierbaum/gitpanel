@@ -19,27 +19,32 @@ from textual.strip import Strip
 from ...git.graph import GraphRow
 from ...git.markers import Marker
 from ...git.models import Commit
+from ..colors import C
 
-# lane colours: Hulk greens and purples first, then contrasting hues
-# lane colours avoid amber and purple: those mark unpushed / remote-only commits
-LANE_COLORS = [
-    "#6CCB3A", "#3FB8AF", "#4FA3E0", "#E06C9F", "#9BDB4D", "#7FDBCA", "#5FB0E8",
-]  # fmt: skip
-
-MARKER_STYLES = {
-    "head": Style(color="#101410", bgcolor="#6CCB3A", bold=True),
-    "branch": Style(color="#6CCB3A", bold=True),
-    "remote": Style(color="#A66BE0"),
-    "tag": Style(color="#E3B23C"),
-    "worktree": Style(color="#3FB8AF", italic=True),
-    "picked": Style(color="#8A8F87", italic=True),
-    "unpushed": Style(color="#E3B23C", bold=True),
-    "incoming": Style(color="#A66BE0", italic=True),
-    "bisect-bad": Style(color="#101410", bgcolor="#E5484D", bold=True),
-    "bisect-good": Style(color="#101410", bgcolor="#6CCB3A", bold=True),
-    "bisect-skip": Style(color="#E3B23C", italic=True),
-    "bisect-current": Style(color="#101410", bgcolor="#E3B23C", bold=True),
+# marker kind → (fg, bg, bold, italic) colour names; resolved per theme in marker_style()
+MARKER_LOOK = {
+    "head": ("ink", "green", True, False),
+    "branch": ("green", None, True, False),
+    "remote": ("purple", None, False, False),
+    "tag": ("amber", None, False, False),
+    "worktree": ("worktree", None, False, True),
+    "picked": ("muted", None, False, True),
+    "unpushed": ("unpushed", None, True, False),
+    "incoming": ("incoming", None, False, True),
+    "bisect-bad": ("ink", "red", True, False),
+    "bisect-good": ("ink", "green", True, False),
+    "bisect-skip": ("amber", None, False, True),
+    "bisect-current": ("ink", "amber", True, False),
 }
+
+
+def marker_style(kind: str) -> Style:
+    look = MARKER_LOOK.get(kind)
+    if look is None:
+        return Style()
+    fg, bg, bold, italic = look
+    return Style(color=C[fg], bgcolor=C[bg] if bg else None, bold=bold, italic=italic)
+
 
 AUTHOR_W = 16
 DATE_W = 16
@@ -218,11 +223,12 @@ class CommitTable(ScrollView, can_focus=True):
         graph_w = self._graph_w
         node_color = next((m.node_color for m in row.markers if m.node_color), None)
         for ch, color in row.graph.cells:
-            st = base + Style(color=LANE_COLORS[color % len(LANE_COLORS)]) if color >= 0 else base
+            lanes = C.lanes
+            st = base + Style(color=lanes[color % len(lanes)]) if color >= 0 else base
             if ch in "●◆◉":
                 st += Style(bold=True)
                 if node_color:
-                    st += Style(color=node_color)
+                    st += Style(color=C[node_color])
             segs.append(Segment(ch, st))
         # two spaces: fonts often draw ● ◆ ◉ wider than one cell, so give them room
         segs.append(Segment(" " * (graph_w - row.graph.width + 2), base))
@@ -236,7 +242,7 @@ class CommitTable(ScrollView, can_focus=True):
             label = f" {m.label} " if m.kind == "head" else f"[{m.label}]"
             if used + len(label) + 1 > subject_w // 2:
                 break
-            segs.append(Segment(label, base + MARKER_STYLES.get(m.kind, Style())))
+            segs.append(Segment(label, base + marker_style(m.kind)))
             segs.append(Segment(" ", base))
             used += len(label) + 1
         subject = row.commit.subject

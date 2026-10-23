@@ -14,6 +14,7 @@ from textual.widgets import Input, Label, OptionList
 from textual.widgets.option_list import Option
 
 from ...actions.context import SelectionContext
+from ..colors import C
 from ..widgets.key_hints import pretty_key
 
 if TYPE_CHECKING:
@@ -65,11 +66,11 @@ class HelpScreen(ModalScreen[None]):
         ol = self.query_one(OptionList)
         ol.clear_options()
         for group in sorted(groups, key=lambda g: (g != "App", g)):
-            ol.add_option(Option(Text(group, style="bold #A66BE0"), disabled=True))
+            ol.add_option(Option(Text(group, style=f"bold {C.purple}"), disabled=True))
             for a in sorted(groups[group], key=lambda a: a.label):
                 shown = " / ".join(pretty_key(k) for k in registry.keys_for(a))
                 t = Text()
-                t.append(f"  {shown:<14}", style="bold #6CCB3A")
+                t.append(f"  {shown:<14}", style=f"bold {C.green}")
                 t.append(a.label, style="bold" if a.id in available else "dim")
                 t.append(f"   {a.id}", style="dim italic")
                 if a.screens:

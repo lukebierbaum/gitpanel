@@ -17,6 +17,7 @@ from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
 from ...git.patch import DiffSource, FileDiff, Selection
+from ..colors import C
 
 GUTTER = 12  # "12345 12345 "
 SPLIT_GUTTER = 7  # "12345 +" on each side of a side-by-side row
@@ -445,7 +446,7 @@ class DiffView(ScrollView, can_focus=True):
             mark = self._mark_for(row)
             if mark:
                 gutter = mark + gutter[1:]
-                mark_style = Style(color="#E3B23C", bold=True)
+                mark_style = Style(color=C.amber, bold=True)
             body = f"{row.marker}{row.text}" if row.marker != "\\" else f"\\{row.text}"
         else:
             gutter = " " * GUTTER

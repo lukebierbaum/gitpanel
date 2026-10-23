@@ -16,6 +16,7 @@ from ...git import patch as P
 from ...git.cherry_pick import compare
 from ...git.graph import GraphRow
 from ...git.markers import Marker
+from ..colors import C
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
 from ..widgets.splitter import Splitter
@@ -108,9 +109,9 @@ class CompareView(Vertical):
         self.picked = {c.sha for c, p in result.only_a + result.only_b if p}
         n_picked = sum(1 for _, p in result.only_b if p)
         header = Text()
-        header.append(f"{a_name}", style="bold #6CCB3A")
+        header.append(f"{a_name}", style=f"bold {C.green}")
         header.append("  ↔  ")
-        header.append(f"{b_name}", style="bold #A66BE0")
+        header.append(f"{b_name}", style=f"bold {C.purple}")
         header.append(
             f"   {len(result.only_b)} only in {b_name} ({n_picked} already picked) · "
             f"{len(result.only_a)} only in {a_name}",
@@ -163,7 +164,7 @@ class CompareView(Vertical):
         t.append(c.subject + "\n", style="bold")
         t.append(f"{c.short}  {c.author_name}  {fmt_date(c.author_date)}\n", style="dim")
         if c.sha in self.picked:
-            t.append("✓ already on the other side (same change)\n", style="#6CCB3A")
+            t.append("✓ already on the other side (same change)\n", style=C.green)
         diffs = await P.load_diff(session.git, P.CommitDiff(c.sha))
         for d in diffs:
             t.append(f"{d.status} {d.path}\n")

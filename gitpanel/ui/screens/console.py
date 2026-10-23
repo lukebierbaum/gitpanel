@@ -12,13 +12,11 @@ from textual.widgets import RichLog, Static
 
 from ...actions.context import SelectionContext
 from ...git.console import CONSOLE, ConsoleEntry
+from ..colors import C
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
 
-GREEN = "#6CCB3A"
-PURPLE = "#A66BE0"
-RED = "#E5484D"
 MAX_LINES_SHOWN = 40  # per stream, per entry
 
 
@@ -107,10 +105,10 @@ class ConsoleView(Vertical):
     def _update_header(self) -> None:
         running = [e for e in CONSOLE.entries if e.running]
         t = Text()
-        t.append("Console", style=f"bold {GREEN}")
+        t.append("Console", style=f"bold {C.green}")
         t.append(f"   {len(CONSOLE.entries)} commands recorded", style="dim")
         if running:
-            t.append(f"   running: {running[-1].command[:60]}", style="#E3B23C")
+            t.append(f"   running: {running[-1].command[:60]}", style=C.amber)
         t.append("   a ", style="bold")
         t.append("changes only" if self.show_queries else "all commands", style="dim")
         t.append("  o ", style="bold")
@@ -127,9 +125,9 @@ class ConsoleView(Vertical):
         if e.cancelled:
             mark, style = "⊘", "dim"
         elif e.ok:
-            mark, style = "✓", GREEN
+            mark, style = "✓", C.green
         else:
-            mark, style = "✗", RED
+            mark, style = "✗", C.red
         t.append(f"{mark} ", style=f"bold {style}")
         t.append("$ " if e.kind == "shell" else "", style="dim")
         t.append(e.command, style="bold" if not e.read_only else "")
@@ -146,9 +144,9 @@ class ConsoleView(Vertical):
         if meta:
             t.append("   " + " · ".join(meta), style="dim")
         if e.stdin_preview:
-            t.append(f"\n         ← {e.stdin_preview}", style=f"italic {PURPLE}")
+            t.append(f"\n         ← {e.stdin_preview}", style=f"italic {C.purple}")
         if self.show_output:
-            for text, out_style in ((e.stdout, ""), (e.stderr, RED if not e.ok else "dim")):
+            for text, out_style in ((e.stdout, ""), (e.stderr, C.red if not e.ok else "dim")):
                 lines = text.rstrip("\n").splitlines()
                 for line in lines[:MAX_LINES_SHOWN]:
                     t.append("\n         " + line, style=out_style or "dim")

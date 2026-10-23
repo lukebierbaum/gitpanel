@@ -33,6 +33,7 @@ from ...git import patch as P
 from ...git.graph import GraphRow
 from ...git.log import LogFilter, load_page
 from ...git.markers import PickedMarkers, RefMarkers, collect
+from ..colors import CHECK_ICON, CI_ICON, C
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.list_table import Col, ListTable, words_match
@@ -41,25 +42,10 @@ from ..widgets.splitter import Splitter
 if TYPE_CHECKING:
     from ..app import GitPanelApp
 
-GREEN, PURPLE, AMBER, RED = "#6CCB3A", "#A66BE0", "#E3B23C", "#E5484D"
-CI_ICON = {
-    "success": ("✓", GREEN),
-    "failure": ("✗", RED),
-    "pending": ("●", AMBER),
-    "none": ("·", "#8A8F87"),
-}
-CHECK_ICON = {
-    "success": ("✓", GREEN),
-    "failure": ("✗", RED),
-    "pending": ("●", AMBER),
-    "skipped": ("–", "#8A8F87"),
-    "neutral": ("○", "#8A8F87"),
-    "cancelled": ("⊘", "#8A8F87"),
-}
 REVIEW = {
-    "APPROVED": ("Approved", GREEN),
-    "CHANGES_REQUESTED": ("Changes", RED),
-    "REVIEW_REQUIRED": ("Review", AMBER),
+    "APPROVED": ("Approved", "ok"),
+    "CHANGES_REQUESTED": ("Changes", "fail"),
+    "REVIEW_REQUIRED": ("Review", "pending"),
     "": ("", ""),
 }
 
@@ -219,9 +205,9 @@ class PRsView(Vertical):
         def title(pr: PullRequest) -> Text:
             t = Text(pr.title, style="dim" if pr.draft else "")
             if pr.draft:
-                t.append("  draft", style=f"italic {PURPLE}")
+                t.append("  draft", style=f"italic {C.purple}")
             for label in pr.labels[:3]:
-                t.append(f"  {label}", style="#3FB8AF")
+                t.append(f"  {label}", style=C.teal)
             return t
 
         return [
@@ -265,7 +251,7 @@ class PRsView(Vertical):
     @staticmethod
     def _check_icon(c: Check) -> Text:
         icon, color = CHECK_ICON[c.state]
-        return Text(icon, style=f"bold {color}")
+        return Text(icon, style=f"bold {C[color]}")
 
     def focus_default(self) -> None:
         self.query_one("#pr-list", DataTable).focus()
@@ -340,12 +326,12 @@ class PRsView(Vertical):
         if ci is None:
             return Text("…", style="dim")
         icon, color = CI_ICON[ci]
-        return Text(icon, style=f"bold {color}")
+        return Text(icon, style=f"bold {C[color]}")
 
     @staticmethod
     def _review_cell(review: str | None) -> Text:
         text, color = REVIEW.get(review or "", ("", ""))
-        return Text(text, style=color)
+        return Text(text, style=C[color])
 
     @work(exclusive=True, group="prs-status")
     async def load_statuses(self, numbers: list[int]) -> None:
@@ -445,25 +431,25 @@ class PRsView(Vertical):
     def _render_overview(self, pr: PullRequest) -> None:
         t = Text()
         t.append(f"#{pr.number} {pr.title}\n", style="bold")
-        state_color = {"OPEN": GREEN, "MERGED": PURPLE, "CLOSED": RED}.get(pr.state, "")
+        state_color = {"OPEN": C.green, "MERGED": C.purple, "CLOSED": C.red}.get(pr.state, "")
         t.append(f"{pr.state.lower()}{' · draft' if pr.draft else ''}", style=f"bold {state_color}")
         t.append(f"   {pr.author} wants to merge {pr.head} into {pr.base}", style="dim")
         t.append(f"   +{pr.additions} −{pr.deletions} in {pr.changed_files} files\n", style="dim")
         icon, color = CI_ICON[pr.ci]
         failing = sum(c.state == "failure" for c in pr.checks)
-        t.append(f"{icon} checks: ", style=color)
+        t.append(f"{icon} checks: ", style=C[color])
         t.append(f"{len(pr.checks)} total, {failing} failing" if pr.checks else "none", style="dim")
         review, rcolor = REVIEW.get(pr.review_decision, ("", ""))
         if review:
             t.append("   review: ", style="dim")
-            t.append(review, style=rcolor)
+            t.append(review, style=C[rcolor])
         if pr.mergeable == "CONFLICTING":
-            t.append("   merge conflicts with base", style=RED)
+            t.append("   merge conflicts with base", style=C.red)
         if pr.auto_merge:
-            t.append("   auto-merge on", style=GREEN)
+            t.append("   auto-merge on", style=C.green)
         t.append("\n")
         if pr.labels:
-            t.append("labels: " + ", ".join(pr.labels) + "\n", style="#3FB8AF")
+            t.append("labels: " + ", ".join(pr.labels) + "\n", style=C.teal)
         if pr.reviewers_requested:
             t.append("waiting on: " + ", ".join(pr.reviewers_requested) + "\n", style="dim")
         self.query_one("#pr-meta", Static).update(t)
@@ -474,7 +460,7 @@ class PRsView(Vertical):
         ] + [(c.created, c.author, "commented", c.body) for c in pr.comments]
         events.sort(key=lambda e: e[0] or datetime.min.replace(tzinfo=UTC))
         if events:
-            conv.append("\nConversation\n", style=f"bold {PURPLE}")
+            conv.append("\nConversation\n", style=f"bold {C.purple}")
         for when, who, what, body in events:
             conv.append(f"{who} ", style="bold")
             conv.append(f"{what} · {ago(when)} ago\n" if when else f"{what}\n", style="dim")
@@ -573,12 +559,12 @@ class PRsView(Vertical):
     def _file_label(self, d: P.FileDiff) -> Text:
         label = Text(
             f"{d.status} ",
-            style=GREEN if d.status == "A" else RED if d.status == "D" else "#B58CE8",
+            style=C.green if d.status == "A" else C.red if d.status == "D" else C.lilac,
         )
         label.append(d.path)
         open_threads = sum(t.path == d.path and not t.resolved for t in self.threads)
         if open_threads:
-            label.append(f"  💬{open_threads}", style=AMBER)
+            label.append(f"  💬{open_threads}", style=C.amber)
         return label
 
     # -- files & threads ----------------------------------------------------------------------
@@ -629,7 +615,7 @@ class PRsView(Vertical):
         t = Text()
         t.append(
             "Resolved thread\n" if thread.resolved else "Review thread\n",
-            style=f"bold {GREEN if thread.resolved else AMBER}",
+            style=f"bold {C.green if thread.resolved else C.amber}",
         )
         for c in thread.comments:
             t.append(f"{c.author} ", style="bold")

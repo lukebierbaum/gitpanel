@@ -26,7 +26,8 @@ from ...git.log import (
     has_remotes,
     load_page,
 )
-from ...git.markers import INCOMING, UNPUSHED, collect, default_providers
+from ...git.markers import collect, default_providers
+from ..colors import STATUS_COLOR, C
 from ..widgets.branch_panel import BranchPanel
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
@@ -36,7 +37,6 @@ if TYPE_CHECKING:
     from ..app import GitPanelApp
 
 PAGE = 400
-STATUS_COLORS = {"A": "#6CCB3A", "M": "#B58CE8", "D": "#E5484D", "R": "#3FB8AF", "C": "#3FB8AF"}
 
 
 class LogView(Vertical):
@@ -86,9 +86,9 @@ class LogView(Vertical):
             yield Input(placeholder="Paths", id="f-path", compact=True)
             yield Input(placeholder="Since (e.g. 2.weeks)", id="f-since", compact=True)
             legend = Text()
-            legend.append("● ", style=f"bold {UNPUSHED}")
+            legend.append("● ", style=f"bold {C.unpushed}")
             legend.append("not pushed  ", style="dim")
-            legend.append("● ", style=f"bold {INCOMING}")
+            legend.append("● ", style=f"bold {C.incoming}")
             legend.append("remote only", style="dim")
             yield Static(legend, id="log-legend")
         with Horizontal(id="log-main"):
@@ -278,12 +278,12 @@ class LogView(Vertical):
         if body:
             t.append(body + "\n")
         t.append("\n")
-        t.append(f"{c.sha[:10]}", style="bold #6CCB3A")
+        t.append(f"{c.sha[:10]}", style=f"bold {C.green}")
         t.append(f"  {c.author_name} <{c.author_email}>  {fmt_date(c.author_date)}\n", style="dim")
         if (c.committer_name, c.committer_email) != (c.author_name, c.author_email):
             t.append(f"committed by {c.committer_name}  {fmt_date(c.commit_date)}\n", style="dim")
         if row.markers:
-            t.append("refs: " + ", ".join(m.label for m in row.markers) + "\n", style="#A66BE0")
+            t.append("refs: " + ", ".join(m.label for m in row.markers) + "\n", style=C.purple)
         text.update(t)
         self._diffs = await P.load_diff(git, P.CommitDiff(sha))
         if self._detail_sha != sha:
@@ -291,7 +291,7 @@ class LogView(Vertical):
         files.clear_options()
         for d in self._diffs:
             label = Text()
-            label.append(f"{d.status} ", style=STATUS_COLORS.get(d.status, ""))
+            label.append(f"{d.status} ", style=C[STATUS_COLOR.get(d.status, "")])
             label.append(d.path)
             if d.status in "RC" and d.old_path:
                 label.append(f"  ← {d.old_path}", style="dim")
@@ -311,7 +311,7 @@ class LogView(Vertical):
             return
         if await has_remotes(git):
             if remote_has:
-                t.append("✓ pushed: ", style="#6CCB3A")
+                t.append("✓ pushed: ", style=C.green)
                 t.append(
                     ", ".join(remote_has[:6])
                     + (f" (+{len(remote_has) - 6})" if len(remote_has) > 6 else "")
@@ -319,14 +319,14 @@ class LogView(Vertical):
                     style="dim",
                 )
             else:
-                t.append("↑ not pushed to any remote\n", style="bold #E3B23C")
+                t.append("↑ not pushed to any remote\n", style=f"bold {C.amber}")
         local_branches = [b for b in branches if b not in remote_has]
         if local_branches:
             t.append("in: " + ", ".join(local_branches[:12]), style="dim")
             if len(local_branches) > 12:
                 t.append(f" (+{len(local_branches) - 12})", style="dim")
         elif not remote_has:
-            t.append("↓ not on any local branch (remote only)", style="#A66BE0")
+            t.append("↓ not on any local branch (remote only)", style=C.purple)
         text.update(t)
         self._shown_sha = sha
 

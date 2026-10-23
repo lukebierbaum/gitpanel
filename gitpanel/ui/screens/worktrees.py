@@ -15,13 +15,11 @@ from textual.widgets import DataTable, Static
 from ...actions.context import Scope, SelectionContext
 from ...git import worktrees as W
 from ...git.session import Worktree
+from ..colors import C
 from ..widgets.list_table import Col, ListTable, words_match
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
-
-GREEN = "#6CCB3A"
-PURPLE = "#A66BE0"
 
 
 def _haystack(wt: Worktree, s: W.WorktreeSummary) -> str:
@@ -94,11 +92,11 @@ class WorktreesView(Vertical):
                 if s.conflicts:
                     t.append(f"{s.conflicts}! ", style="bold red")
                 if s.staged:
-                    t.append(f"{s.staged}● ", style=GREEN)
+                    t.append(f"{s.staged}● ", style=C.green)
                 if s.unstaged:
-                    t.append(f"{s.unstaged}✚ ", style=PURPLE)
+                    t.append(f"{s.unstaged}✚ ", style=C.purple)
                 if s.untracked:
-                    t.append(f"{s.untracked}? ", style="#E3B23C")
+                    t.append(f"{s.untracked}? ", style=C.amber)
             else:
                 t.append("clean", style="dim")
             return t
@@ -120,7 +118,7 @@ class WorktreesView(Vertical):
             wt, _ = item
             return Text(
                 wt.branch_short or f"detached {wt.head[:8] if wt.head else ''}",
-                style=f"bold {GREEN}" if self._is_active(wt) else "",
+                style=f"bold {C.green}" if self._is_active(wt) else "",
             )
 
         def dirt(item: Item) -> int:
@@ -129,7 +127,7 @@ class WorktreesView(Vertical):
 
         return [
             Col("active", "", 2,
-                lambda item: Text("●", style=GREEN) if self._is_active(item[0]) else ""),
+                lambda item: Text("●", style=C.green) if self._is_active(item[0]) else ""),
             Col("name", "Worktree", 22,
                 lambda item: Text(item[0].name, style="bold" if self._is_active(item[0]) else ""),
                 sort=lambda item: item[0].name.casefold()),
@@ -176,7 +174,7 @@ class WorktreesView(Vertical):
         wt, s = item
         t = Text()
         t.append(f"{wt.path}\n", style="bold")
-        t.append(f"HEAD {wt.head[:10] if wt.head else '—'}", style=GREEN)
+        t.append(f"HEAD {wt.head[:10] if wt.head else '—'}", style=C.green)
         if wt.branch_short:
             t.append(f" on {wt.branch_short}")
         if s.upstream:
@@ -189,7 +187,7 @@ class WorktreesView(Vertical):
                 + "\n"
             )
         if s.operation:
-            t.append(s.operation.label + "\n", style="#E3B23C")
+            t.append(s.operation.label + "\n", style=C.amber)
         if wt.locked is not None:
             t.append(f"Locked{': ' + wt.locked if wt.locked else ''}\n", style="dim")
         if wt.prunable is not None:

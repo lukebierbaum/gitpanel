@@ -15,18 +15,19 @@ from ...actions.context import SelectionContext
 from ...actions.registry import Registry
 from ...git import scripted_rebase as SR
 from ...git.log import commit_details
+from ..colors import C
 from ..widgets.key_hints import KeyHints
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
 
-ACTION_STYLE = {
-    "pick": "#6CCB3A",
-    "reword": "#4FA3E0",
-    "edit": "#E3B23C",
-    "squash": "#A66BE0",
-    "fixup": "#A66BE0",
-    "drop": "#E5484D",
+ACTION_STYLE = {  # colour names
+    "pick": "green",
+    "reword": "blue",
+    "edit": "amber",
+    "squash": "purple",
+    "fixup": "purple",
+    "drop": "red",
 }
 
 
@@ -76,13 +77,13 @@ class RebaseEditorScreen(Screen[None]):
         row = table.cursor_row if cursor is None else cursor
         table.clear()
         for item in self.todo:
-            style = ACTION_STYLE.get(item.action, "")
+            style = C[ACTION_STYLE.get(item.action, "")]
             subject = self.messages.get(item.sha or "", item.subject).split("\n", 1)[0]
             subj = Text(("    ↳ " if item.action in ("squash", "fixup") else "") + subject)
             if item.action == "drop":
                 subj.stylize("strike dim")
             if item.sha in self.messages:
-                subj.append("  (new message)", style="italic #4FA3E0")
+                subj.append("  (new message)", style=f"italic {C.blue}")
             table.add_row(Text(item.action, style=f"bold {style}"), (item.sha or "")[:8], subj)
         if self.todo:
             table.move_cursor(row=max(0, min(row, len(self.todo) - 1)))
@@ -98,7 +99,7 @@ class RebaseEditorScreen(Screen[None]):
         try:
             SR.validate(self.todo)
         except SR.RebaseError as e:
-            header.append(f"\n⚠ {e}", style="#E5484D")
+            header.append(f"\n⚠ {e}", style=C.red)
         self.query_one("#rb-header", Static).update(header)
         self.gp.refresh_hints()
 

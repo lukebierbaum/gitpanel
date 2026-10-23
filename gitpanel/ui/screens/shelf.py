@@ -16,13 +16,12 @@ from ...git import patch as P
 from ...git import shelf as SH
 from ...git import stash as ST
 from ...git.models import StashEntry
+from ..colors import C
 from ..widgets.diff_view import DiffView
 from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
-
-PURPLE = "#A66BE0"
 
 
 class ShelfView(Vertical):
@@ -70,7 +69,7 @@ class ShelfView(Vertical):
         self.entries.clear()
         shelves = SH.list_shelves(session)
         stashes = await ST.stashes(session.git)
-        ol.add_option(Option(Text("Shelf", style=f"bold {PURPLE}"), disabled=True))
+        ol.add_option(Option(Text("Shelf", style=f"bold {C.purple}"), disabled=True))
         if not shelves:
             ol.add_option(
                 Option(
@@ -86,7 +85,7 @@ class ShelfView(Vertical):
                 f"  {len(s.paths)} file(s) · {s.created.astimezone():%Y-%m-%d %H:%M}", style="dim"
             )
             ol.add_option(Option(t, id=oid))
-        ol.add_option(Option(Text("Stashes", style=f"bold {PURPLE}"), disabled=True))
+        ol.add_option(Option(Text("Stashes", style=f"bold {C.purple}"), disabled=True))
         if not stashes:
             ol.add_option(
                 Option(
