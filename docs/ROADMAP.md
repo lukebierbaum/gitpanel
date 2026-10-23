@@ -30,7 +30,7 @@ All ten milestones are implemented — see each `docs/milestones/M*.md` "As buil
 - **Custom commands** accept arbitrary shell (only known `{placeholders}` are substituted).
 
 ### Next
-- **M12 — Stacked pull requests:** see stacks in the PR window, create PRs on top of PRs, restack after merges in one undo step, merge a stack bottom-up ([plan](milestones/M12.md)).
+- **M12 — Stacked pull requests:** GitHub stacks (`gh stack`) and not-yet-linked chains in the PR window, link / publish them as GitHub stacks, restack in one undo step, atomic stack merges ([plan](milestones/M12.md)).
 
 The backlog is the ✗ / ◐ rows in [PARITY.md](PARITY.md) — top of the list: word-level diff highlighting and syntax colours, "diff with working tree", log navigation (go to hash, first-parent / hide merges), remembering the Update Project mode, managing remotes.
 
