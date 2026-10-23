@@ -24,6 +24,7 @@ class Scope(StrEnum):
     STASH = "stash"
     SHELF = "shelf"
     CONFLICT = "conflict"
+    PR = "pr"
 
 
 FileGroup = Literal["staged", "unstaged", "untracked", "conflict", "commit"]

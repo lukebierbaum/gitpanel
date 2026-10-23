@@ -29,7 +29,7 @@ class ConsoleEntry:
     args: tuple[str, ...]
     cwd: Path
     read_only: bool
-    kind: Literal["git", "shell"] = "git"
+    kind: Literal["git", "shell", "gh"] = "git"
     stdin_preview: str | None = None
     returncode: int | None = None  # None while running (or cancelled)
     duration: float | None = None
@@ -51,7 +51,7 @@ class ConsoleEntry:
     def command(self) -> str:
         if self.kind == "shell":
             return self.args[-1] if self.args else ""
-        return "git " + shlex.join(self.args)
+        return f"{self.kind} " + shlex.join(self.args)
 
 
 def _clip(text: str) -> tuple[str, bool]:
@@ -98,7 +98,7 @@ class Console:
         *,
         read_only: bool,
         stdin: bytes | None = None,
-        kind: Literal["git", "shell"] = "git",
+        kind: Literal["git", "shell", "gh"] = "git",
     ) -> ConsoleEntry:
         entry = ConsoleEntry(
             id=self._next,
