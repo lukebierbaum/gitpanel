@@ -19,6 +19,7 @@ from textual.strip import Strip
 from ...git.patch import DiffSource, FileDiff, Selection
 
 GUTTER = 12  # "12345 12345 "
+SPLIT_GUTTER = 7  # "12345 +" on each side of a side-by-side row
 
 
 @dataclass(frozen=True)
@@ -197,6 +198,7 @@ class DiffView(ScrollView, can_focus=True):
         # (side, line) → mark shown in the gutter, e.g. review comments ("LEFT" = old side)
         self.line_marks: dict[tuple[str, int], str] = {}
         self._max_width = 0
+        self._split_text = 0  # longest line on either side in side-by-side mode
 
     # -- content -------------------------------------------------------------
     def set_diff(
@@ -229,12 +231,40 @@ class DiffView(ScrollView, can_focus=True):
     def _rebuild(self) -> None:
         if self.split:
             self.rows = build_split_rows(self.diff, self._message)
-            self._max_width = 0
+            self._max_width = max((len(r.text) for r in self.rows if r.kind != "line"), default=0)
+            self._split_text = max(
+                (
+                    len(side.text)
+                    for r in self.rows
+                    if r.kind == "line"
+                    for side in (r, r.pair)
+                    if side is not None
+                ),
+                default=0,
+            )
         else:
             self.rows = build_rows(self.diff, self._message)
             self._max_width = max((GUTTER + 1 + len(r.text) for r in self.rows), default=0)
         self.anchor = None
-        self.virtual_size = Size(self._max_width, len(self.rows))
+        self._update_virtual_size()
+
+    def _split_halves(self, width: int) -> tuple[int, int]:
+        """Widths of the left and right side of a side-by-side row."""
+        half = max((width - 1) // 2, 8)
+        return half, max(width - half - 1, 0)
+
+    def _update_virtual_size(self) -> None:
+        width = self.scrollable_content_region.width or self.size.width
+        if self.split:
+            # both sides scroll together, far enough to read the longest line on either
+            room = min(self._split_halves(width)) - SPLIT_GUTTER
+            needed = width + max(self._split_text - room, 0) if width else 0
+            self.virtual_size = Size(max(needed, self._max_width), len(self.rows))
+        else:
+            self.virtual_size = Size(self._max_width, len(self.rows))
+
+    def on_resize(self) -> None:
+        self._update_virtual_size()
 
     def action_toggle_split(self) -> None:
         current = self.rows[self.cursor] if self.rows else None
@@ -480,7 +510,7 @@ class DiffView(ScrollView, can_focus=True):
             ref = self.line_ref(row.pair)
         return ref
 
-    def _side_segments(self, r: Row | None, w: int, base: Style) -> list[Segment]:
+    def _side_segments(self, r: Row | None, w: int, base: Style, offset: int) -> list[Segment]:
         style = self.get_component_rich_style
         if r is None or (r.marker == "" and not r.text):
             return [Segment(" " * w, base + style("diff-view--gutter"))]
@@ -490,20 +520,23 @@ class DiffView(ScrollView, can_focus=True):
             "+": style("diff-view--added"),
             "-": style("diff-view--removed"),
         }.get(r.marker, Style())
-        body = (r.marker if r.marker in "+-" else " ") + r.text
-        room = max(w - len(gutter), 0)
-        body = body[:room].ljust(room)
+        # the line number and +/- stay put while the text scrolls sideways
+        marker = r.marker if r.marker in "+-" else " "
+        room = max(w - SPLIT_GUTTER, 0)
+        body = r.text[offset : offset + room].ljust(room)
         return [
-            Segment(gutter, base + style("diff-view--gutter")),
+            Segment(gutter[: min(w, len(gutter))], base + style("diff-view--gutter")),
+            Segment(marker if w > len(gutter) else "", base + text_style),
             Segment(body, base + text_style),
         ]
 
     def _render_split(self, row: Row, idx: int, width: int, base: Style) -> Strip:
         style = self.get_component_rich_style
-        half = max((width - 1) // 2, 8)
-        segs = self._side_segments(row, half, base)
+        left, right = self._split_halves(width)
+        offset = self.scroll_offset.x
+        segs = self._side_segments(row, left, base, offset)
         segs.append(Segment("│", base + style("diff-view--gutter")))
-        segs += self._side_segments(row.pair, width - half - 1, base)
+        segs += self._side_segments(row.pair, right, base, offset)
         strip = Strip(segs).crop_extend(0, width, base)
         overlay = None
         if idx == self.cursor:

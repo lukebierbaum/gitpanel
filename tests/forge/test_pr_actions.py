@@ -22,8 +22,12 @@ async def env(gh_repo):
 
 async def ctx(session, provider, number, where="list", **form):
     pr = await provider.pr(number)
-    return SelectionContext(session, screen="prs", focus=Scope.PR,
-                            form={"provider": provider, "pr": pr, "where": where, **form})
+    return SelectionContext(
+        session,
+        screen="prs",
+        focus=Scope.PR,
+        form={"provider": provider, "pr": pr, "where": where, **form},
+    )
 
 
 async def test_checkout_and_checkout_in_worktree(env, tmp_path):
@@ -45,7 +49,8 @@ async def test_checkout_with_local_changes_offers_smart(env):
     await d.dispatch_id("pr.checkout", await ctx(session, provider, 1))
     assert gh_repo.repo.git("branch", "--show-current").strip() == "feature/fuzz"
     assert any("conflict" in m for _, m in ui.notifications) or "local edit" in gh_repo.repo.read(
-        "app.py")
+        "app.py"
+    )
 
 
 async def test_review_comment_merge_close_ready_rerun(env):
@@ -80,8 +85,9 @@ async def test_create_pr_pushes_first_and_drafts_body(env):
     repo.commit({"b.txt": "b\n"}, "Add b")
     await session.refresh_active()
     ui.form_answers = [{"title": "New thing", "reviewers": "lin", "draft": True}]
-    await d.dispatch_id("pr.create", SelectionContext(
-        session, screen="prs", form={"provider": provider}))
+    await d.dispatch_id(
+        "pr.create", SelectionContext(session, screen="prs", form={"provider": provider})
+    )
     assert ui.confirms and "isn't on GitHub yet" in ui.confirms[0]
     assert "feature/new-thing" in repo.git("ls-remote", "--heads", "origin")
     new = next(p for p in gh_repo.state["prs"] if p["headRefName"] == "feature/new-thing")
@@ -118,6 +124,8 @@ async def test_create_pr_without_github_remote_explains(repo):
     ui = FakeUi()
     d = Dispatcher(register_builtin(Registry()), ui)
     ref = next(b for b in await R.branches(session.git) if b.short == "main")
-    await d.dispatch_id("branch.create_pr", SelectionContext(
-        session, screen="branches", focus=Scope.BRANCH, refs=(ref,)))
+    await d.dispatch_id(
+        "branch.create_pr",
+        SelectionContext(session, screen="branches", focus=Scope.BRANCH, refs=(ref,)),
+    )
     assert ui.notifications[-1][0] == "error" and "GitHub remote" in ui.notifications[-1][1]

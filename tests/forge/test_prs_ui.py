@@ -37,8 +37,9 @@ async def test_pr_window_list_details_files_threads(gh_repo):
         await settle(pilot, app)
         files = view.query_one("#pr-files", OptionList)
         assert files.option_count == 2
-        files.highlighted = next(i for i in range(files.option_count)
-                                 if files.get_option_at_index(i).id == "app.py")
+        files.highlighted = next(
+            i for i in range(files.option_count) if files.get_option_at_index(i).id == "app.py"
+        )
         await settle(pilot, app)
         diff = view.query_one("#pr-diff", DiffView)
         assert diff.line_marks == {("RIGHT", 4): "◆"}
@@ -72,3 +73,17 @@ async def test_pr_window_without_github(repo):
         await settle(pilot, app)
         empty = app.view.query_one("#pr-empty")
         assert empty.has_class("-shown") and "github.com remote" in str(empty.render())
+
+
+async def test_pr_files_diff_fits_the_screen(gh_repo):
+    app = GitPanelApp(
+        gh_repo.repo.path, config=Config(pr_default_query="review", side_by_side=True)
+    )
+    async with app.run_test(size=(150, 40)) as pilot:
+        await settle(pilot, app)
+        await pilot.press("7")
+        await settle(pilot, app)
+        app.view.query_one("#pr-tabs", TabbedContent).active = "tab-files"
+        await settle(pilot, app)
+        diff = app.view.query_one("#pr-diff", DiffView)
+        assert diff.region.right <= 150

@@ -1,6 +1,6 @@
 # gitpanel
 
-**PyCharm's Git tooling, in your terminal.**
+**Git tooling inspired by PyCharm, in your terminal.**
 
 gitpanel is a keyboard-first Git client for the terminal, modelled on the Git integration in JetBrains IDEs: a commit window with hunk- and line-level staging, a log with a branch graph and a branches panel, worktrees, cherry-picking that knows what you've already picked, a 3-pane conflict resolver, interactive rebase, shelves — and **undo for everything**, including discarded changes.
 
@@ -100,7 +100,7 @@ Panes can be resized by dragging the thin dividers between them (double-click re
 |---|---|
 | `space` | stage / unstage the file, group, hunk under the cursor, or selected lines |
 | `v`, `shift+↑↓` | select lines in the diff, then `space` |
-| `s` | toggle side-by-side diff |
+| `s` | toggle side-by-side diff (`←`/`→` scroll long lines) |
 | `n` / `p` | next / previous change |
 | `a` / `A` | stage all / unstage all |
 | `ctrl+k` | commit — `alt+m` amend, `alt+↑↓` message history |
@@ -235,3 +235,5 @@ Built with [Textual](https://textual.textualize.io). Design notes: [architecture
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+gitpanel is an independent project, not affiliated with or endorsed by JetBrains. PyCharm is a trademark of JetBrains s.r.o.

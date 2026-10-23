@@ -86,7 +86,7 @@ class PRsView(Vertical):
     PRsView #pr-list { height: 1fr; background: $surface; }
     PRsView #pr-empty { height: auto; padding: 1 2; color: $text-muted; display: none; }
     PRsView #pr-empty.-shown { display: block; }
-    PRsView TabbedContent { height: 1fr; }
+    PRsView TabbedContent { height: 1fr; width: 1fr; }
     PRsView #pr-overview { padding: 0 1; }
     PRsView #pr-files { width: 26; background: $surface; border: none; }
     PRsView #pr-thread { height: auto; max-height: 12; padding: 0 1; background: $panel;
