@@ -12,7 +12,7 @@ from typing import Literal
 
 from ..git.remote import NO_PROMPT
 from ..git.session import RepoSession
-from .models import ROLLUP_STATE, CIState, PullRequest, ReviewThread
+from .models import ROLLUP_STATE, PRStatus, PullRequest, ReviewThread, StackInfo
 from .runner import ForgeError, Gh
 
 # Only cheap fields: asking `gh pr list` for statusCheckRollup / reviewDecision / additions
@@ -144,17 +144,19 @@ class GitHub:
         d = await self.gh.json("pr", "view", str(number), "--json", DETAIL_FIELDS)
         return PullRequest.parse(d, detailed=True)
 
-    async def statuses(self, numbers: Sequence[int]) -> dict[int, tuple[CIState, str]]:
-        """PR number → (CI rollup, review decision), in small parallel GraphQL batches."""
+    async def statuses(self, numbers: Sequence[int]) -> dict[int, PRStatus]:
+        """PR number → CI rollup, review decision and GitHub stack, in small parallel
+        GraphQL batches."""
         if not numbers:
             return {}
         info = await self.repo()
         limit = asyncio.Semaphore(STATUS_PARALLEL)
 
-        async def batch(chunk: Sequence[int]) -> dict[int, tuple[CIState, str]]:
+        async def batch(chunk: Sequence[int]) -> dict[int, PRStatus]:
             fields = " ".join(
                 f"p{n}: pullRequest(number: {n}) {{ reviewDecision "
-                "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }"
+                "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } "
+                "stack { number size baseRefName } stackEntry { position } }"
                 for n in chunk
             )
             query = (
@@ -167,7 +169,7 @@ class GitHub:
                     "-F", f"owner={info.owner}", "-F", f"name={info.name}",
                 )  # fmt: skip
             repo = ((d or {}).get("data") or {}).get("repository") or {}
-            out: dict[int, tuple[CIState, str]] = {}
+            out: dict[int, PRStatus] = {}
             for n in chunk:
                 pr = repo.get(f"p{n}")
                 if not pr:
@@ -176,14 +178,50 @@ class GitHub:
                 state = (
                     ((nodes[-1] or {}).get("commit") or {}).get("statusCheckRollup") or {}
                 ).get("state")
-                out[n] = (ROLLUP_STATE.get(str(state), "none"), str(pr.get("reviewDecision") or ""))
+                stack, entry = pr.get("stack"), pr.get("stackEntry")
+                out[n] = PRStatus(
+                    ROLLUP_STATE.get(str(state), "none"),
+                    str(pr.get("reviewDecision") or ""),
+                    StackInfo(
+                        int(stack["number"]),
+                        int((entry or {}).get("position") or 0),
+                        int(stack.get("size") or 0),
+                        str(stack.get("baseRefName") or ""),
+                    )
+                    if stack
+                    else None,
+                )
             return out
 
         chunks = [numbers[i : i + STATUS_BATCH] for i in range(0, len(numbers), STATUS_BATCH)]
-        merged: dict[int, tuple[CIState, str]] = {}
+        merged: dict[int, PRStatus] = {}
         for part in await asyncio.gather(*(batch(c) for c in chunks)):
             merged.update(part)
         return merged
+
+    async def open_pr_index(self, limit: int = 300) -> list[PullRequest]:
+        """Every open PR with the cheap list fields — for finding stacks across the repo."""
+        data = await self.gh.json(
+            "pr", "list", "--state", "open", "--limit", str(limit), "--json", LIST_FIELDS
+        )
+        return [PullRequest.parse(d) for d in data or []]
+
+    async def stack_members(self, pr_number: int) -> list[int]:
+        """The PR numbers of the GitHub stack `pr_number` is in, bottom → top ([] if none)."""
+        info = await self.repo()
+        query = (
+            "query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner,"
+            " name: $name) { pullRequest(number: $number) { stack { entries(first: 100) {"
+            " nodes { position pullRequest { number } } } } } } }"
+        )
+        d = await self.gh.json(
+            "api", "graphql", "-f", f"query={query}", "-F", f"owner={info.owner}",
+            "-F", f"name={info.name}", "-F", f"number={pr_number}",
+        )  # fmt: skip
+        pr = (((d or {}).get("data") or {}).get("repository") or {}).get("pullRequest") or {}
+        nodes = ((pr.get("stack") or {}).get("entries") or {}).get("nodes") or []
+        nodes = sorted((n for n in nodes if n.get("pullRequest")), key=lambda n: n["position"])
+        return [int(n["pullRequest"]["number"]) for n in nodes]
 
     async def current_pr(self) -> PullRequest | None:
         """The open PR for the checked-out branch, if any."""

@@ -228,6 +228,25 @@ class ThreadComment:
 
 
 @dataclass(frozen=True)
+class StackInfo:
+    """A PR's place in a GitHub stack (`PullRequest.stack` / `stackEntry`)."""
+
+    number: int  # the stack's number on GitHub
+    position: int  # orders the PRs bottom → top
+    size: int
+    base: str  # the branch the bottom PR merges into
+
+
+@dataclass(frozen=True)
+class PRStatus:
+    """What the batched status query knows about a PR beyond the list fields."""
+
+    ci: CIState
+    review: str  # reviewDecision, "" if none
+    stack: StackInfo | None = None
+
+
+@dataclass(frozen=True)
 class ReviewThread:
     id: str
     path: str

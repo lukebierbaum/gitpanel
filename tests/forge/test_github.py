@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from gitpanel.forge import github as GH
-from gitpanel.forge.models import PullRequest
+from gitpanel.forge.models import PRStatus, PullRequest
 from gitpanel.forge.runner import ForgeError
 from gitpanel.git.console import CONSOLE
 from gitpanel.git.session import RepoSession
@@ -35,8 +35,8 @@ async def test_list_queries_and_parse(gh):
     [call] = [c for c in gh_repo.calls() if c[:2] == ["pr", "list"]][:1]
     assert "statusCheckRollup" not in call[call.index("--json") + 1]
     assert await provider.statuses([1, 2]) == {
-        1: ("failure", "REVIEW_REQUIRED"),
-        2: ("none", "REVIEW_REQUIRED"),
+        1: PRStatus("failure", "REVIEW_REQUIRED"),
+        2: PRStatus("none", "REVIEW_REQUIRED"),
     }
     assert [p.number for p in await provider.list_prs("open", "parser")] == [1]
     assert await provider.list_prs("closed") == []

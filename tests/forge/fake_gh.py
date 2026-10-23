@@ -205,6 +205,16 @@ def main(argv: list[str]) -> None:
             save(state)
             print("{}")
             return
+        if "stack { entries" in query:  # GitHub.stack_members
+            n = int(fields["number"])
+            stack = next((st for st in state.get("stacks", []) if n in st["prs"]), None)
+            nodes = [
+                {"position": i + 1, "pullRequest": {"number": m}}
+                for i, m in enumerate(stack["prs"] if stack else [])
+            ]
+            pr = {"stack": stack and {"entries": {"nodes": nodes}}}
+            print(json.dumps({"data": {"repository": {"pullRequest": pr}}}))
+            return
         if "statusCheckRollup" in query:  # GitHub.statuses: aliased p<N> fields
             repo = {}
             for n in re.findall(r"p(\d+): pullRequest", query):
@@ -221,7 +231,15 @@ def main(argv: list[str]) -> None:
                     if concl - {"SUCCESS", "SKIPPED", "NEUTRAL"}
                     else "SUCCESS"
                 )
+                stack = next((st for st in state.get("stacks", []) if int(n) in st["prs"]), None)
                 repo[f"p{n}"] = {
+                    "stack": stack
+                    and {
+                        "number": stack["number"],
+                        "size": len(stack["prs"]),
+                        "baseRefName": stack["base"],
+                    },
+                    "stackEntry": stack and {"position": stack["prs"].index(int(n)) + 1},
                     "reviewDecision": pr.get("reviewDecision"),
                     "commits": {
                         "nodes": [{"commit": {"statusCheckRollup": rollup and {"state": rollup}}}]

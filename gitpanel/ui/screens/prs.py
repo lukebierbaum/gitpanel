@@ -25,7 +25,7 @@ from textual.widgets import (
 from ...actions.context import Scope, SelectionContext
 from ...forge.filters import pr_matches
 from ...forge.github import QUERIES, GitHub, detect
-from ...forge.models import Check, CIState, PullRequest, ReviewThread
+from ...forge.models import Check, CIState, PRStatus, PullRequest, ReviewThread
 from ...forge.runner import ForgeError
 from ...git import patch as P
 from ...git.graph import GraphRow
@@ -85,7 +85,7 @@ class PRsView(ToolWindow):
         self._detected = False
         # caches so revisiting a list or a PR is instant while it refreshes in the background
         self._lists: dict[tuple[str, str], list[PullRequest]] = {}
-        self._statuses: dict[int, tuple[CIState, str]] = {}
+        self._statuses: dict[int, PRStatus] = {}
         self._details: dict[int, tuple[PullRequest, float]] = {}
         self._pending: Timer | None = None
         self._query = "mine"
@@ -178,7 +178,8 @@ class PRsView(ToolWindow):
     # -- list columns ------------------------------------------------------------------------
     def _pr_columns(self) -> list[Col[PullRequest]]:
         def status(pr: PullRequest) -> tuple[CIState | None, str | None]:
-            return self._statuses.get(pr.number, (None, None))
+            st = self._statuses.get(pr.number)
+            return (st.ci, st.review) if st is not None else (None, None)
 
         def title(pr: PullRequest) -> Text:
             t = Text(pr.title, style="dim" if pr.draft else "")
@@ -209,7 +210,8 @@ class PRsView(ToolWindow):
         # which the list doesn't have)
         if text == self._searched.strip():
             return True
-        ci, review = self._statuses.get(pr.number, (None, None))
+        st = self._statuses.get(pr.number)
+        ci, review = (st.ci, st.review) if st is not None else (None, None)
         return pr_matches(pr, text, ci=ci, review=review)
 
     def _empty_text(self, text: str) -> str:
@@ -385,7 +387,8 @@ class PRsView(ToolWindow):
             self.gp.notify(str(e), severity="error")
             return
         self._details[number] = (pr, time.monotonic())
-        self._statuses[number] = (pr.ci, pr.review_decision)
+        old = self._statuses.get(number)
+        self._statuses[number] = PRStatus(pr.ci, pr.review_decision, old.stack if old else None)
         if self.detail is not None and self.detail.number != number:
             return  # the cursor moved on meanwhile
         self._show(pr)
