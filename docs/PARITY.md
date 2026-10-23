@@ -49,7 +49,7 @@
 | Fetch, background auto-fetch | ◐ | manual only |
 | Push dialog (outgoing commits, force-with-lease, tags, set upstream) | ✅ | protected branches ✗ |
 | Manage remotes (add / rename / remove / URL) | ✗ | backend exists, no UI |
-| GitHub pull requests (list, checkout, review, create) | ✗ | could use `gh` |
+| GitHub pull requests (list, checkout, review, create) | ✅ | `7`: lists, details, checks, commits/files, checkout (+ worktree), create, review, comment, merge, close, re-run checks, inline review threads |
 
 ## Stash, shelf, patches
 | Shelve / unshelve (partial), stash push/apply/pop/drop/branch | ✅ | |

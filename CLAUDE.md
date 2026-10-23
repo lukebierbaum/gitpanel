@@ -18,7 +18,7 @@ pixi run demo DEST         # build a demo repo to try things in
 Add dependencies with `pixi add <pkg>` (conda-forge) or `pixi add --pypi <pkg>` — never `pip install`. Runtime deps also go in `[project].dependencies`. Commit `pixi.lock` changes.
 
 ## Rules
-1. **Layering:** `gitpanel.ui → gitpanel.actions → gitpanel.git`. `gitpanel.git` never imports Textual or `gitpanel.actions`/`ui`.
+1. **Layering:** `gitpanel.ui → gitpanel.actions → gitpanel.forge / gitpanel.git`. `git` and `forge` never import Textual or `actions`/`ui`. PR tests use the fake `gh` in `tests/forge/` (no network).
 2. **All git access goes through `Git.run()/stream()`** — no `subprocess` elsewhere, no GitPython/pygit2. Use `-z`/NUL formats and `read_only=True` for queries. The only exception is `gitpanel/actions/custom.py`, which runs the user's own `[[commands]]` with `sh -c` (values shell-quoted). Anything that spawns a process must report it to `git.console.CONSOLE` (start/finish) so it shows in the Console window.
 3. **Every repo mutation runs inside `journal.mutation()`** — normally automatic via the `Dispatcher` (`Action(mutating=True)`). Ops that discard working-tree content set `destructive=True`. Each mutating action needs an undo test.
 4. **Screens don't bind git operations.** Register an `Action` in `gitpanel/actions/builtin/<area>.py` with scopes/`when`/key; screens only publish `SelectionContext`. No git keys in Textual `BINDINGS`.

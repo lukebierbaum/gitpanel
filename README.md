@@ -15,7 +15,8 @@ gitpanel is a keyboard-first Git client for the terminal, modelled on the Git in
 - **Conflicts without leaving the terminal** — yours │ result │ theirs, per-chunk accept / combine / edit, then continue the merge, rebase or cherry-pick.
 - **History editing** — interactive rebase editor, reword, squash, fixup, drop, and a patch builder that moves hunks between commits.
 - **Undo everything** — `z` undoes the last operation (commits, resets, rebases, deleted branches, even discarded changes); `alt+z` shows the full operation history.
-- **See what it does** — the Console shows every git command gitpanel runs and git's reply.
+- **Pull requests** — browse, check out (even into a fresh worktree), review, comment on lines, and merge GitHub PRs, through the `gh` CLI you're already logged into.
+- **See what it does** — the Console shows every git (and `gh`) command gitpanel runs and the reply.
 - **Make it yours** — remap any key, add your own commands, pick a theme (default: *Hulk*, purple and gamma green).
 
 ## Tour
@@ -81,7 +82,7 @@ gp() {
 
 | Key | |
 |---|---|
-| `1` – `6` | tool windows: **Commit · Log · Worktrees · Compare · Shelf · Console** |
+| `1` – `7` | tool windows: **Commit · Log · Worktrees · Compare · Shelf · Console · Pull requests** |
 | `b` | Branches popup |
 | `?` | every action and its key (filterable) |
 | `ctrl+p` | command palette |
@@ -131,6 +132,20 @@ Panes can be resized by dragging the thin dividers between them (double-click re
 
 ### Worktrees (`3`)
 `n` new · `enter` switch · `d` remove · `m` move · `l` lock · `s` open a shell there · `y` copy path. In the Branches popup, `ctrl+w` makes a worktree for a branch.
+
+### Pull requests (`7`)
+Needs the [GitHub CLI](https://cli.github.com) (`gh auth login`). Lists *Mine · Review requested · Assigned · All open · Closed* with CI and review status, plus search; the current branch's PR shows in the header (`PR #12 ✓`).
+
+| Key | |
+|---|---|
+| `enter` | check out the PR (Smart / Force Checkout if local changes are in the way) |
+| `w` | check it out in a **new worktree** |
+| `n` | create a PR from the current branch — pushes it if needed, drafts title and description from its commits (also *Create Pull Request…* on any branch in the Branches popup) |
+| `r` · `m` | review (approve / request changes / comment) · comment |
+| `M` | merge — squash, merge commit or rebase; delete the branch; auto-merge when checks pass |
+| `o` · `y` | open on GitHub · copy link |
+| Overview · Commits · Files · Checks | description and conversation · the PR's commits (cherry-pick with `C`) · its diff · CI checks (`enter` opens one; *Re-run Failed Checks* in `alt+enter`) |
+| in Files | lines with review comments are marked `◆`; the thread shows under the diff — `c` comment on a line, `R` reply, `x` resolve |
 
 ### Conflicts
 Conflicted files appear under **Merge Conflicts** in the Commit window, and a banner offers Continue / Skip / Abort. `enter` opens the resolver: `←`/`→` take yours/theirs for the current chunk, `b`/`B` take both, `e` edit, `ctrl+s` save and mark resolved.

@@ -34,9 +34,11 @@ def opt(args: list[str], name: str, default: str | None = None) -> str | None:
 
 
 def git(*args: str, cwd: str | None = None) -> str:
-    return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
-    ).stdout
+    res = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if res.returncode:  # like real gh: pass git's own error through
+        sys.stderr.write(res.stderr)
+        sys.exit(1)
+    return res.stdout
 
 
 def fail(msg: str, code: int = 1) -> None:

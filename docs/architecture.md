@@ -36,6 +36,10 @@ gitpanel/
   git/
     runner.py                 # Git, GitResult, GitError (every call reports to console.CONSOLE)
     console.py                # Console/ConsoleEntry: recorded commands + output for the Console window
+  forge/                      # code-hosting integrations (no Textual), used by actions/prs.py
+    runner.py                 # Gh: runs `gh`, explains errors (ForgeError), reports to CONSOLE (kind "gh")
+    models.py                 # PullRequest, Check, Review, Comment, ReviewThread
+    github.py                 # GitHub provider + local side (fetch pull/N/head → refs/gitpanel/pr/N)
     session.py                # RepoSession, Worktree, ChangeKind
     models.py                 # shared dataclasses (Commit, Ref, FileStatus, StashEntry, …)
     journal.py                # Journal, JournalEntry, HeadState

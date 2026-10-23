@@ -182,6 +182,10 @@ class DiffView(ScrollView, can_focus=True):
             super().__init__()
             self.view = view
 
+        @property
+        def control(self) -> DiffView:
+            return self.view
+
     def __init__(self, *, name: str | None = None, id: str | None = None) -> None:
         super().__init__(name=name, id=id)
         self.source: DiffSource | None = None
@@ -190,6 +194,8 @@ class DiffView(ScrollView, can_focus=True):
         self.anchor: int | None = None
         self.split = False
         self._message = ""
+        # (side, line) → mark shown in the gutter, e.g. review comments ("LEFT" = old side)
+        self.line_marks: dict[tuple[str, int], str] = {}
         self._max_width = 0
 
     # -- content -------------------------------------------------------------
@@ -401,10 +407,15 @@ class DiffView(ScrollView, can_focus=True):
         else:
             text_style = Style()
 
+        mark_style: Style | None = None
         if row.kind == "line":
             old = "" if row.old_no is None else str(row.old_no)
             new = "" if row.new_no is None else str(row.new_no)
             gutter = f"{old:>5} {new:>5} "
+            mark = self._mark_for(row)
+            if mark:
+                gutter = mark + gutter[1:]
+                mark_style = Style(color="#E3B23C", bold=True)
             body = f"{row.marker}{row.text}" if row.marker != "\\" else f"\\{row.text}"
         else:
             gutter = " " * GUTTER
@@ -422,7 +433,11 @@ class DiffView(ScrollView, can_focus=True):
             overlay = style("diff-view--cursor")
 
         segments = [
-            Segment(gutter, base + gutter_style),
+            *(
+                [Segment(gutter[0], base + mark_style), Segment(gutter[1:], base + gutter_style)]
+                if mark_style is not None
+                else [Segment(gutter, base + gutter_style)]
+            ),
             Segment(body, base + text_style),
         ]
         strip = Strip(segments)
@@ -436,6 +451,34 @@ class DiffView(ScrollView, can_focus=True):
                 strip.cell_length,
             )
         return strip
+
+    @staticmethod
+    def line_ref(row: Row) -> tuple[str, int] | None:
+        """(side, line) of a diff row the way review comments address it."""
+        if row.kind != "line":
+            return None
+        if row.marker == "-" and row.old_no is not None:
+            return ("LEFT", row.old_no)
+        if row.new_no is not None and row.marker in " +":
+            return ("RIGHT", row.new_no)
+        return None
+
+    def _mark_for(self, row: Row) -> str:
+        if not self.line_marks:
+            return ""
+        ref = self.line_ref(row)
+        if ref is None and row.pair is not None:
+            ref = self.line_ref(row.pair)
+        return self.line_marks.get(ref, "") if ref else ""
+
+    def cursor_line_ref(self) -> tuple[str, int] | None:
+        if not self.rows or self.cursor >= len(self.rows):
+            return None
+        row = self.rows[self.cursor]
+        ref = self.line_ref(row)
+        if ref is None and row.pair is not None:
+            ref = self.line_ref(row.pair)
+        return ref
 
     def _side_segments(self, r: Row | None, w: int, base: Style) -> list[Segment]:
         style = self.get_component_rich_style

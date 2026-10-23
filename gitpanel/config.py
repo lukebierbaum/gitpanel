@@ -19,6 +19,11 @@ context = 3                  # context lines around changes
 [log]
 branch_folders = true        # group feature/x, release/y … into folders in the Log's branch panel
 
+[prs]
+refresh_seconds = 180        # refresh the PR window this often while it's visible (0 = manual)
+default_query = "mine"       # mine | review | assigned | open | closed
+merge_method = "squash"      # squash | merge | rebase
+
 [worktrees]
 path_template = "../{repo}.worktrees/{branch}"   # relative to the main worktree
 
@@ -49,6 +54,9 @@ class Config:
     theme: str = "hulk"
     side_by_side: bool = False
     branch_folders: bool = True
+    pr_refresh_seconds: int = 180
+    pr_default_query: str = "mine"
+    merge_method: str = "squash"
     diff_context: int = 3
     worktree_template: str = "../{repo}.worktrees/{branch}"
     journal_keep: int = 200
@@ -84,6 +92,9 @@ def _merge(cfg: Config, data: dict[str, Any], origin: str) -> None:
     get("", "theme", str, "theme")
     get("diff", "side_by_side", bool, "side_by_side")
     get("log", "branch_folders", bool, "branch_folders")
+    get("prs", "refresh_seconds", int, "pr_refresh_seconds")
+    get("prs", "default_query", str, "pr_default_query")
+    get("prs", "merge_method", str, "merge_method")
     get("diff", "context", int, "diff_context")
     get("worktrees", "path_template", str, "worktree_template")
     get("journal", "keep", int, "journal_keep")

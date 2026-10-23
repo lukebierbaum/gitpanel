@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 from collections.abc import AsyncIterator, Sequence
 from datetime import timedelta
 from pathlib import Path
@@ -20,6 +21,7 @@ from ..actions.registry import Action, Dispatcher, Registry
 from ..actions.ui_protocol import Field, Severity
 from ..config import Config
 from ..config import load as load_config
+from ..forge.github import detect as forge_detect
 from ..git.operations import OperationState, detect
 from ..git.runner import GitError
 from ..git.session import ChangeKind, RepoSession
@@ -44,6 +46,7 @@ from .screens.help import HelpScreen
 from .screens.history import HistoryScreen
 from .screens.journal import JournalScreen
 from .screens.log import LogView
+from .screens.prs import PRsView
 from .screens.rebase_editor import RebaseEditorScreen
 from .screens.resolver import ResolverScreen
 from .screens.shelf import ShelfView
@@ -54,7 +57,7 @@ from .widgets.diff_view import DiffView
 from .widgets.key_hints import KeyHints, pretty_key
 from .widgets.operation_banner import OperationBanner
 
-View = CommitView | LogView | WorktreesView | CompareView | ShelfView | ConsoleView
+View = CommitView | LogView | WorktreesView | CompareView | ShelfView | ConsoleView | PRsView
 
 
 class Header(Static):
@@ -72,7 +75,7 @@ class GitPanelApp(App[None]):
     #toolwindows { height: 1; background: $panel; }
     #toolwindows Tab { padding: 0 2; }
     """
-    VIEWS = ("commit", "log", "worktrees", "compare", "shelf", "console")
+    VIEWS = ("commit", "log", "worktrees", "compare", "shelf", "console", "prs")
 
     def __init__(
         self,
@@ -94,6 +97,9 @@ class GitPanelApp(App[None]):
         self.dispatcher = Dispatcher(self.registry, self)
         self.operation: OperationState | None = None
         self.startup_error: str | None = None
+        self._pr_badge: tuple[str | None, Any, float] = (None, None, 0.0)
+        self._header_args: tuple[Any, ...] | None = None
+        self._forge: tuple[Any, Any] | None = None
         for theme in THEMES:
             self.register_theme(theme)
         self.theme = DEFAULT_THEME
@@ -109,6 +115,7 @@ class GitPanelApp(App[None]):
             Tab("4 Compare", id="tab-compare"),
             Tab("5 Shelf", id="tab-shelf"),
             Tab("6 Console", id="tab-console"),
+            Tab("7 PRs", id="tab-prs"),
             id="toolwindows",
         )
         with ContentSwitcher(initial="commit-view", id="views"):
@@ -118,6 +125,7 @@ class GitPanelApp(App[None]):
             yield CompareView()
             yield ShelfView()
             yield ConsoleView()
+            yield PRsView()
         yield KeyHints(id="hints")
 
     async def on_mount(self) -> None:
@@ -179,6 +187,7 @@ class GitPanelApp(App[None]):
             self.query_one(CompareView),
             self.query_one(ShelfView),
             self.query_one(ConsoleView),
+            self.query_one(PRsView),
         ]
 
     def _context_screen(self) -> Any | None:
@@ -233,7 +242,50 @@ class GitPanelApp(App[None]):
             t.append(f"  ↑{ahead} ↓{behind}", style="dim")
         if not wt.is_main:
             t.append(f"   worktree: {wt.path}", style="italic")
+        badge_branch, pr, _ = self._pr_badge
+        if pr is not None and badge_branch == branch:
+            icon, color = {
+                "success": ("✓", "#6CCB3A"),
+                "failure": ("✗", "#E5484D"),
+                "pending": ("●", "#E3B23C"),
+                "none": ("", ""),
+            }[pr.ci]
+            t.append(f"   PR #{pr.number}", style="bold")
+            if icon:
+                t.append(f" {icon}", style=f"bold {color}")
+        self._header_args = (branch, head, ahead, behind, upstream)
         self.query_one(Header).update(t)
+        self._maybe_refresh_badge(branch)
+
+    def _maybe_refresh_badge(self, branch: str | None) -> None:
+        badge_branch, _, fetched = self._pr_badge
+        ttl = max(self.config.pr_refresh_seconds, 30)
+        if branch and (branch != badge_branch or time.monotonic() - fetched > ttl):
+            self._pr_badge = (
+                branch,
+                self._pr_badge[1] if branch == badge_branch else None,
+                time.monotonic(),
+            )
+            self.refresh_pr_badge(branch)
+
+    @work(exclusive=True, group="pr-badge")
+    async def refresh_pr_badge(self, branch: str) -> None:
+        session = self.session
+        if session is None:
+            return
+        if self._forge is None or self._forge[0] is not session:
+            self._forge = (session, await forge_detect(session))
+        provider = self._forge[1]
+        pr = None
+        if provider is not None:
+            try:
+                pr = await provider.current_pr()
+            except Exception:  # noqa: BLE001 - the badge is best effort
+                pr = None
+        if session.active.branch_short == branch:
+            self._pr_badge = (branch, pr, time.monotonic())
+            if self._header_args is not None:
+                self._update_header(*self._header_args)
 
     def on_app_focus(self, event: events.AppFocus) -> None:
         if self.session is not None:
@@ -408,6 +460,9 @@ class GitPanelApp(App[None]):
             return
         if event == "clipboard":
             self.copy_to_clipboard(str(data.get("text", "")))
+            return
+        if event == "open_url":
+            self.open_url(str(data.get("url", "")))
             return
         if event == "popup.close":
             if isinstance(self.screen, BranchesPopup):

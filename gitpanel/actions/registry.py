@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..forge.runner import ForgeError
 from ..git.journal import JournalEntry, ResetMode, UndoRefused
 from ..git.runner import GitError
 from ..git.session import RepoSession
@@ -169,6 +170,10 @@ class Dispatcher:
             self.ui.notify(e.reason, severity="warning")
         except ActionError as e:
             self.ui.notify(str(e), severity="error")
+        except ForgeError as e:
+            self.ui.notify(str(e) + (f" — {e.hint}" if e.hint else ""), severity="error")
+            if e.result is not None:
+                self.ui.show_error(action.label, e.details)
         return None
 
 

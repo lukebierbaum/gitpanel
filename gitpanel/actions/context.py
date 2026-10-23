@@ -81,4 +81,5 @@ class SelectionContext:
             "files": " ".join(f.path for f in self.files),
             "count": str(len(self.files) or len(self.commits)),
             "op": str(self.operation.kind) if self.operation else "",
+            "pr": str(getattr(self.form.get("pr"), "number", "")),
         }
