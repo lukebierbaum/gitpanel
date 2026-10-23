@@ -49,7 +49,10 @@ def commit(repo: Path, files: dict[str, str], msg: str) -> None:
 
 def pick_repo(base: Path) -> Path:
     repo = base / "parser"
+    origin = base / "origin.git"
+    git(base, "init", "-q", "--bare", str(origin))
     git(base, "init", "-q", "-b", "main", str(repo))
+    git(repo, "remote", "add", "origin", str(origin))
     commit(repo, {"parser.py": "def parse(s):\n    return s.split()\n"}, "Initial parser")
     git(repo, "branch", "release/1.x")
     git(repo, "switch", "-q", "-c", "feature/tokens")
@@ -64,6 +67,16 @@ def pick_repo(base: Path) -> Path:
     git(repo, "switch", "-q", "main")
     git(repo, "cherry-pick", "-x", "feature/tokens~2")
     commit(repo, {"VERSION": "1.1\n"}, "Bump version")
+    git(repo, "push", "-q", "-u", "origin", "main", "feature/tokens", "release/1.x")
+    for name in ("feature/ui/dark-mode", "bugfix/unicode"):
+        git(repo, "branch", name, "main")
+    # a teammate's commit we've fetched but not pulled, and local work not yet pushed
+    other = base / "teammate"
+    git(base, "clone", "-q", "-b", "main", str(origin), str(other))
+    commit(other, {"CHANGELOG.md": "## 1.1\n"}, "Add changelog")
+    git(other, "push", "-q", "origin", "main")
+    git(repo, "fetch", "-q")
+    commit(repo, {"bench.py": "import timeit\n"}, "Benchmark the tokenizer")
     git(repo, "worktree", "add", "-q", str(base / "parser-release"), "release/1.x")
     (repo / "parser.py").write_text(
         "def parse(s):\n    # split on whitespace\n    return s.strip().split()\n\n\n"
@@ -108,15 +121,24 @@ def conflict_repo(base: Path) -> Path:
     return repo
 
 
-async def shot(repo: Path, name: str, keys: list[str], theme: str = "hulk") -> None:
+async def shot(
+    repo: Path, name: str, keys: list[str], theme: str = "hulk", message: str | None = None
+) -> None:
     app = GitPanelApp(repo, config=Config(theme=theme))
     async with app.run_test(size=SIZE) as pilot:
         for _ in range(40):
             await pilot.pause(0.02)
         for k in keys:
+            if k == "<message>" and message is not None:
+                app.query_one("#commit-msg").text = message  # type: ignore[attr-defined]
+                continue
             await pilot.press(k)
             for _ in range(15):
                 await pilot.pause(0.02)
+        for _ in range(100):  # let background work finish so nothing shows as "running"
+            await pilot.pause(0.02)
+            if all(w.is_finished for w in app.workers):
+                break
         app.save_screenshot(str(OUT / f"{name}.svg"))
     print("wrote", OUT / f"{name}.svg")
 
@@ -127,11 +149,18 @@ async def main() -> None:
     try:
         repo = pick_repo(base)
         await shot(repo, "commit", ["down", "down", "down", "tab"])
-        await shot(repo, "log", ["alt+9", "down", "down"])
+        await shot(repo, "log", ["2", "down", "down", "down"])
         await shot(repo, "branches", ["b"])
         await shot(repo, "compare", ["b", *"feat", "ctrl+e"])
-        await shot(repo, "worktrees", ["alt+8"])
+        await shot(repo, "worktrees", ["3"])
         await shot(conflict_repo(base), "resolver", ["down", "down", "enter"])
+        # last: these steps change the repo (stage, commit) so the Console has something to show
+        await shot(
+            repo,
+            "console",
+            ["a", "<message>", "ctrl+k", "6"],
+            message="Parse multiple lines\n\nAdds parse_all().",
+        )
     finally:
         shutil.rmtree(base, ignore_errors=True)
 

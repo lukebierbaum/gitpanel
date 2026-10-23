@@ -1,132 +1,49 @@
 # gitpanel
 
-A PyCharm-style Git client for the terminal: commit tool window with hunk/line staging, log with branch graph, branches popup, worktrees, cherry-picking between branches (with already-picked detection), 3-pane conflict resolver, history/annotate, shelves, interactive rebase — and undo for all of it, including discarded changes.
+**PyCharm's Git tooling, in your terminal.**
 
-![Commit window](docs/screenshots/commit.svg)
+gitpanel is a keyboard-first Git client for the terminal, modelled on the Git integration in JetBrains IDEs: a commit window with hunk- and line-level staging, a log with a branch graph and a branches panel, worktrees, cherry-picking that knows what you've already picked, a 3-pane conflict resolver, interactive rebase, shelves — and **undo for everything**, including discarded changes.
 
-| | |
+![The Log: branch graph, branches panel, commit details](docs/screenshots/log.svg)
+
+| Commit window | Compare branches |
 |---|---|
-| ![Log](docs/screenshots/log.svg) | ![Compare branches](docs/screenshots/compare.svg) |
+| ![Commit window](docs/screenshots/commit.svg) | ![Compare branches](docs/screenshots/compare.svg) |
+| **Branches popup** | **3-pane conflict resolver** |
 | ![Branches popup](docs/screenshots/branches.svg) | ![Conflict resolver](docs/screenshots/resolver.svg) |
+| **Worktrees** | **Git console** |
+| ![Worktrees](docs/screenshots/worktrees.svg) | ![Console](docs/screenshots/console.svg) |
 
-**Status:** all 10 milestones of the [roadmap](docs/ROADMAP.md) are implemented.
+## Highlights
+
+- **Stage exactly what you mean** — whole files, single hunks or individual lines, in unified or side-by-side diffs. Changelists, amend, sign-off, commit-and-push.
+- **A log you can navigate** — coloured branch graph, a branches panel with folders (`feature/…`, `release/…`) to show any branch's history, filters by text, author, path and date, and dots that show what's **not pushed** (amber) or **only on the remote** (purple).
+- **Cherry-picking between branches** — pick one or many commits, see which commits are **already picked** (by patch content or `-x` trailer), compare branches side by side, pick onto a branch you don't have checked out, or pick just a hunk or a file.
+- **Worktrees as a first-class citizen** — create, switch, lock, move and remove them from a dedicated window; checking out a branch that lives in another worktree takes you there.
+- **Conflicts without leaving the terminal** — yours │ result │ theirs, per-chunk accept / combine / edit, then continue the merge, rebase or cherry-pick.
+- **History editing** — interactive rebase editor, reword, squash, fixup, drop, and a patch builder that moves hunks between commits.
+- **Undo everything** — `z` undoes the last operation (commits, resets, rebases, deleted branches, even discarded changes); `alt+z` shows the full operation history.
+- **See what it does** — the Console shows every git command gitpanel runs and git's reply.
+- **Make it yours** — remap any key, add your own commands, pick a theme (default: *Hulk*, purple and gamma green).
 
 ## Install
+
+Requires **Python 3.11+** and **git 2.45+**, on Linux or macOS.
+
 ```bash
-pipx install git+ssh://git@github.com/lukebierbaum/gitpanel.git
-gitpanel            # in any repository or worktree
-gitpanel --init-config   # writes ~/.config/gitpanel/config.toml with every option
+pipx install git+https://github.com/lukebierbaum/gitpanel.git
 ```
 
-Or from a checkout with [pixi](https://pixi.sh):
+Then, inside any repository or worktree:
+
 ```bash
-pixi run demo /tmp/gp-demo      # build a demo repository
-pixi run start /tmp/gp-demo     # open it
+gitpanel            # or: gitpanel path/to/repo
 ```
 
-Panes are resizable: drag the thin divider between them (double-click resets it); sizes are remembered in `~/.local/state/gitpanel/layout.json`. Press `?` anywhere for every action and its key, `ctrl+p` for the command palette, `alt+enter` for actions on the current selection. Tool windows: `1` Commit · `2` Log · `3` Worktrees · `4` Compare · `5` Shelf · `6` Console (every git command gitpanel runs and git's output; `a` also shows read-only queries, `o` output on/off, `c` clear) (`alt+0/9/8/5` also work where the terminal doesn't use them for its own tabs). In the hints, `^` means Ctrl. If your keyboard layout makes Alt type symbols (Alt+5 → `∞`, as Mac-style layouts do), gitpanel maps those back to the Alt shortcuts; `.` also opens the actions menu.
+### Land in the worktree you were using
 
-### Commit tool window
-| Key | Action |
-|---|---|
-| `↑↓` / `j k`, `tab` | move; tab cycles changes → diff → message |
-| `space` | stage / unstage the file, group, hunk under the cursor, or selected lines |
-| `v`, `shift+↑↓` | select lines in the diff (then `space`) |
-| `n` / `p` (`F7` / `shift+F7`) | next / previous change |
-| `a` / `A` | stage all / unstage all |
-| `ctrl+k` | commit (`alt+m` toggles amend; `alt+↑↓` message history) |
-| `ctrl+alt+z` | rollback file / hunk / lines (undoable) |
-| `z` / `Z` | undo / redo the last operation, including discarded changes (the hint shows what) |
-| `alt+z` | operation history — `enter` undoes (or redoes) everything down to the selected entry |
-| `ctrl+p` | command palette (everything available in the current context) |
-| `q` | quit |
+gitpanel can switch worktrees. Add this to your `~/.bashrc` (or `~/.zshrc`) and launch with `gp` to have your shell `cd` into the worktree that was active when you quit:
 
-### Log (`2`)
-| Key | Action |
-|---|---|
-| (left panel) | **Branches**, in folders by `/` (`feature/…`, `release/…`; `→`/`←` open and close them; `g` switches folders on/off, default in config `[log] branch_folders`): highlight a branch to see only its history; `space` marks several to combine them (on a folder: every branch in it), `esc` clears, *All branches* shows everything; `enter` checks out, `ctrl+e` compares, `alt+enter` for every branch action; `[` hides/shows the panel |
-| `/` | filter by message text/regex (branch, user, path, since fields alongside) |
-| `shift+↑↓` | select several commits |
-| `R` | edit commit message (any commit on the current branch) |
-| `B` / `T` | new branch / tag at the commit |
-| `y` | copy hash |
-| `I` | interactively rebase from here (editor: `p r e s f d`, `alt+↑↓` move, `ctrl+s` start) |
-| `S` / `D` | squash / drop the selected commits |
-| `alt+f` | fold the staged changes into the selected commit (fixup + autosquash) |
-| `ctrl+p` | everything else: checkout revision, reset to here, revert… |
-| `s` (in a diff) | side-by-side diff |
-
-### Cherry-picking
-| Key | Action |
-|---|---|
-| `C` | cherry-pick the selected commits onto the current branch (already-picked ones are skipped) |
-| `alt+c` | … with options (`-x`, no-commit) |
-| `ctrl+alt+c` | cherry-pick onto another branch without checking it out |
-| `A` (in a commit's diff) / `G` (on a commit's file) | apply the selected hunk/lines / get the whole file from that revision |
-| `b` → `ctrl+e` | Compare window: commits only in either branch, already-picked ones marked ✓ (`h` hides them, `x` swaps) |
-
-Commits whose change already exists on your branch are dimmed and tagged `✓ picked` in the Log. In the graph, commits no remote has yet get an **amber** dot and commits only on a remote (fetched, not pulled) a **purple** dot (legend in the filter bar); the details pane says which remote branches contain the selected commit, and the branch panel tags never-pushed branches `local`.
-
-### History, annotate, shelf, stash, changelists
-| Key | Action |
-|---|---|
-| `alt+h` | file history (Commit window, Log, history) — or history of the selected lines in Annotate |
-| `alt+a` | annotate (git blame); in Annotate: `p` previous revision, `enter` show commit in Log, `v` select lines |
-| `alt+s` / `alt+t` | shelve the selected changes / stash all changes |
-| `5` | Shelf window: shelves and stashes — `enter` unshelve / pop, `a` apply, `d` delete/drop, `B` branch from stash |
-| `f6` | move files to another changelist (new / rename / delete / set active via `alt+enter`) |
-
-### Patch builder and bisect (Log / History, on a commit's diff selection)
-| Key | Action |
-|---|---|
-| `alt+r` | remove the selected hunks/lines from that commit |
-| `alt+n` | move them out into a new commit right after it |
-| `alt+m` | move them into another commit on the branch |
-| `alt+i` | move them out of the commit into the index |
-| `alt+v` | revert them in the working tree |
-| `alt+b` / `alt+g` / `alt+k` | bisect: mark the selected commit bad / good / skip (starts a bisect); `ctrl+p` → "Bisect: Run a Command…" automates it |
-
-### Custom commands
-```toml
-[[commands]]
-id = "open-pr"
-label = "Open pull request"
-key = "ctrl+o"
-context = "branch"            # global | commit | branch | file | worktree
-run = "gh pr view --web {branch}"
-output = "none"               # none | popup | terminal
-read_only = true              # false (default) records it in the undo journal
-# confirm = "Really?"   prompts = [{ name = "msg", label = "Message" }]  → {msg}
-```
-Placeholders: `{repo} {worktree} {commit} {commits} {short} {branch} {ref} {file} {files} {count}` and your prompts — all shell-quoted. They show up in `?`, the palette and `alt+enter`.
-
-### Merge conflicts
-Conflicted files appear under **Merge Conflicts** in the Commit window and the banner offers Continue / Skip / Abort.
-
-| Key | Action |
-|---|---|
-| `enter` | open the 3-pane resolver (yours │ result │ theirs) |
-| `←` / `→` | take yours / theirs for the current chunk (jumps to the next unresolved one) |
-| `b` / `B` | take both (yours first / theirs first) |
-| `e` / `u` | edit the result by hand / reset the chunk |
-| `n` / `p` | next / previous conflict |
-| `ctrl+s` | save and mark resolved |
-| `alt+←` / `alt+→` (in the Commit window) | accept yours / theirs for the whole file |
-
-### Branches, worktrees, remotes
-| Key | Action |
-|---|---|
-| `b` | Branches popup — type to search; `enter` checkout (offers Smart / Force Checkout if local changes are in the way), `ctrl+n` new, `ctrl+k` push, `f2` rename, `ctrl+d` delete, `ctrl+f` favourite, `ctrl+w` new worktree, `alt+enter` all actions |
-| `3` / `w` | Worktrees window — `enter` switch, `n` new, `d` remove, `m` move, `l` lock, `s` shell, `y` copy path |
-| `F` / `ctrl+t` / `P` | fetch / update project (pull, merge or rebase) / push dialog |
-| `alt+enter` | actions for the current selection, anywhere |
-
-Colour scheme: **Hulk** (purple + gamma green) by default; `hulk-light` or any Textual theme via `theme = "…"` in the config.
-
-### Configuration
-`gitpanel --init-config` writes a commented `~/.config/gitpanel/config.toml`: theme, side-by-side diffs, diff context, worktree path template, journal size, whether to confirm destructive actions, and `[keys]` to remap any action by id (ids are listed in `?`). A repository's `.gitpanel.toml` is only read with `--trust-repo-config`.
-
-### `cd` into the worktree you were in when you quit
 ```bash
 gp() {
   local f; f=$(mktemp)
@@ -136,27 +53,146 @@ gp() {
 }
 ```
 
+## Getting around
+
+| Key | |
+|---|---|
+| `1` – `6` | tool windows: **Commit · Log · Worktrees · Compare · Shelf · Console** |
+| `b` | Branches popup |
+| `?` | every action and its key (filterable) |
+| `ctrl+p` | command palette |
+| `alt+enter` or `.` | actions for whatever is selected |
+| `tab` / `shift+tab` | move between panes |
+| `z` / `Z` | undo / redo — the hint bar shows what |
+| `q` | quit |
+
+Panes can be resized by dragging the thin dividers between them (double-click resets). In the key hints, `^` means Ctrl.
+
+## Workflows
+
+### Commit
+| Key | |
+|---|---|
+| `space` | stage / unstage the file, group, hunk under the cursor, or selected lines |
+| `v`, `shift+↑↓` | select lines in the diff, then `space` |
+| `s` | toggle side-by-side diff |
+| `n` / `p` | next / previous change |
+| `a` / `A` | stage all / unstage all |
+| `ctrl+k` | commit — `alt+m` amend, `alt+↑↓` message history |
+| `ctrl+alt+k` | commit and push |
+| `ctrl+alt+z` | roll back a file, hunk or lines (undoable) |
+| `f6` | move files to another changelist |
+| `alt+s` / `alt+t` | shelve the selection / stash everything |
+
+### Log and branches
+| Key | |
+|---|---|
+| branches panel | highlight a branch to see its history; `space` combines several; `→`/`←` open folders; `g` folders on/off; `[` hide the panel |
+| `/` | filter by message (regex); branch, user, path and since filters alongside |
+| `shift+↑↓` | select several commits |
+| `R` · `S` · `D` · `alt+f` | reword · squash · drop · fold staged changes into a commit |
+| `I` | interactive rebase from here (`p r e s f d` to set actions, `alt+↑↓` to reorder) |
+| `B` · `T` · `W` | new branch · tag · worktree at a commit |
+| `alt+h` / `alt+a` | file history / annotate (blame) |
+| `F` · `ctrl+t` · `P` | fetch · update project (merge or rebase) · push dialog |
+
+### Cherry-picking
+| Key | |
+|---|---|
+| `C` | cherry-pick the selected commits onto the current branch (already-picked ones are skipped) |
+| `alt+c` | … with options (`-x`, no-commit) |
+| `ctrl+alt+c` | cherry-pick onto another branch without checking it out |
+| `A` / `G` | apply the selected hunk from a commit / get the whole file from it |
+| `b` → `ctrl+e` | Compare window: what's only on either branch, already-picked commits marked ✓ |
+
+### Worktrees (`3`)
+`n` new · `enter` switch · `d` remove · `m` move · `l` lock · `s` open a shell there · `y` copy path. In the Branches popup, `ctrl+w` makes a worktree for a branch.
+
+### Conflicts
+Conflicted files appear under **Merge Conflicts** in the Commit window, and a banner offers Continue / Skip / Abort. `enter` opens the resolver: `←`/`→` take yours/theirs for the current chunk, `b`/`B` take both, `e` edit, `ctrl+s` save and mark resolved.
+
+### More
+Patch builder (on a selection in a commit's diff: `alt+r` remove it from the commit, `alt+n` move it to a new commit, `alt+m` move it to another commit), bisect (`alt+b` / `alt+g` mark bad / good), Smart and Force Checkout when local changes are in the way, and an operation history with undo-to-here (`alt+z`).
+
+## Configuration
+
+`gitpanel --init-config` writes a commented `~/.config/gitpanel/config.toml`:
+
+```toml
+theme = "hulk"                 # hulk, hulk-light, or any Textual theme
+
+[diff]
+side_by_side = true            # start diffs side-by-side
+context = 3
+
+[log]
+branch_folders = true          # group feature/x, release/y … in the branches panel
+
+[worktrees]
+path_template = "../{repo}.worktrees/{branch}"
+
+[confirm]
+destructive = true             # ask before discarding work (it's always backed up)
+
+[keys]                         # remap by action id (see `?`); "a,b" for several keys, "" to unbind
+"commit.commit" = "ctrl+s"
+```
+
+### Custom commands
+
+Add your own commands; they appear in `?`, the palette and the actions menu:
+
+```toml
+[[commands]]
+id = "open-pr"
+label = "Open pull request"
+key = "ctrl+o"
+context = "branch"             # global | commit | branch | file | worktree
+run = "gh pr view --web {branch}"
+output = "none"                # none | popup | terminal
+read_only = true               # commands that change the repo are recorded for undo
+```
+
+Placeholders — `{repo} {worktree} {commit} {commits} {short} {branch} {ref} {file} {files} {count}` and any `prompts` you define — are shell-quoted. Other braces (`{ print $1 }`, `${VAR}`) are left alone, so multi-line shell snippets work as written.
+
 ## Large repositories
-gitpanel asks git questions like "which branches contain this commit" and "which commits aren't pushed yet". On big histories git answers these much faster with a **commit-graph** — a local cache file in `.git/objects/info/` (about 60 bytes per commit: ~5 MB for 90,000 commits, built in under a second). It never leaves your machine and is safe to delete. Turn it on for every repository so each fetch keeps it current:
+
+On big histories, git answers questions like "which branches contain this commit" much faster with a **commit-graph** — a small local cache (about 60 bytes per commit) that never leaves your machine. Turn it on for every repository:
 
 ```bash
 git config --global fetch.writeCommitGraph true
 ```
 
-or build one right away in a single repository:
+## How it compares
 
-```bash
-git commit-graph write --reachable
-```
+|  | lazygit | gitui | tig | **gitpanel** |
+|---|---|---|---|---|
+| Hunk / line staging | ✅ | ✅ | ✅ | ✅ |
+| Branch graph, history per branch | ✅ | ✗ | ◐ | ✅ |
+| Already-picked commit detection | ✗ | ✗ | ✗ | ✅ |
+| Cherry-pick onto a branch you're not on | ✗ | ✗ | ✗ | ✅ |
+| 3-pane conflict resolver | ◐ | ✗ | ◐ | ✅ |
+| Worktree management | ✅ | ✗ | ✗ | ✅ |
+| Undo, including discarded changes | ◐ | ✗ | ✗ | ✅ |
+| Shelves and changelists | ✗ | ✗ | ✗ | ✅ |
+| Command log / console | ✅ | ✗ | ✗ | ✅ |
+
+gitpanel drives the real `git` CLI, so hooks, config, credential helpers and LFS behave exactly as they do on the command line. Feature-by-feature notes against PyCharm are in [docs/PARITY.md](docs/PARITY.md).
 
 ## Development
+
+Uses [pixi](https://pixi.sh) for the environment.
+
 ```bash
-pixi run test
+pixi run demo /tmp/gp-demo      # build a demo repository
+pixi run start /tmp/gp-demo     # run gitpanel on it
+pixi run test                   # ~180 tests against real git repositories
 pixi run lint
 pixi run python scripts/screenshots.py   # regenerate docs/screenshots
 ```
 
-Design docs: [architecture](docs/architecture.md) · [milestones](docs/milestones/) · [contributor rules](CLAUDE.md)
+Built with [Textual](https://textual.textualize.io). Design notes: [architecture](docs/architecture.md) · [roadmap](docs/ROADMAP.md) · [PyCharm parity](docs/PARITY.md) · [contributor guide](CLAUDE.md).
 
 ## License
+
 MIT — see [LICENSE](LICENSE).

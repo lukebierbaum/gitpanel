@@ -1,9 +1,11 @@
 # gitpanel roadmap — PyCharm-style Git TUI (Python + Textual)
 
+> **This is the original build plan, kept for history.** Everything in it has shipped (milestones M1–M10); where the build differs from the plan, each [milestone spec](milestones/) has an "As built" section. For what gitpanel does today see the [README](../README.md); for what's left compared with PyCharm see [PARITY.md](PARITY.md).
+>
 > Companion docs: [architecture.md](architecture.md) (foundation contracts) · [milestones/](milestones/) (per-milestone specs, written at each milestone's kickoff) · [../CLAUDE.md](../CLAUDE.md) (working rules).
 
 ## Context
-A terminal app that reproduces PyCharm's Git tooling (Commit tool window, Log with branch graph, Branches popup, remotes, merge-conflict resolver, history/annotate, shelve/stash, interactive rebase) — with **cherry-picking between branches** and **worktrees** as first-class workflows. Python + Textual TUI, all feature areas in scope. Repo: `lukebierbaum/gitpanel` (private).
+A terminal app that reproduces PyCharm's Git tooling (Commit tool window, Log with branch graph, Branches popup, remotes, merge-conflict resolver, history/annotate, shelve/stash, interactive rebase) — with **cherry-picking between branches** and **worktrees** as first-class workflows. Python + Textual TUI, all feature areas in scope. Repo: [`lukebierbaum/gitpanel`](https://github.com/lukebierbaum/gitpanel), MIT licensed.
 
 ### Compared with existing TUIs
 | | lazygit | gitui | gitu | tig | gitpanel |
@@ -19,8 +21,19 @@ A terminal app that reproduces PyCharm's Git tooling (Commit tool window, Log wi
 ## Status
 All ten milestones are implemented — see each `docs/milestones/M*.md` "As built" section for deviations from this plan.
 
+### Added after M10
+- **Log:** branches panel beside the log (folders by `/`, multi-select, toggleable), graph dots for unpushed (amber) and remote-only (purple) commits, fast branch switching (picked detection via `--cherry-mark` over diverged commits, slow markers filled in after rows render, caches).
+- **Checkout:** Smart Checkout (stash → switch → unstash) and Force Checkout (undoable) when local changes are in the way.
+- **Console** tool window (`6`): every git command gitpanel runs, with stdin, output, exit code and timing.
+- **Keys:** number keys `1`–`6` for tool windows (Alt+digit is taken by many terminals), several keys per action, Mac-style Option-layout characters mapped back to Alt, `?` key map.
+- **Layout:** draggable, remembered pane dividers; side-by-side diff default from config.
+- **Custom commands** accept arbitrary shell (only known `{placeholders}` are substituted).
+
+### Next
+The backlog is the ✗ / ◐ rows in [PARITY.md](PARITY.md) — top of the list: word-level diff highlighting and syntax colours, a Files tab in Compare and "diff with working tree", log navigation (go to hash, first-parent / hide merges), remembering the Update Project mode, GitHub pull requests, managing remotes.
+
 ## Step 0 — Repo setup (done)
-- ✅ `lukebierbaum/gitpanel` created (private); local checkout at `~/gitpanel`, branch `main`.
+- ✅ `lukebierbaum/gitpanel` created; branch `main`.
 - **Deps managed with pixi**, manifest in `pyproject.toml` under `[tool.pixi.*]` so the package stays pip/pipx-installable:
   - `[project]` (hatchling build): name `gitpanel`, `requires-python >=3.11`, deps `textual`, `rich`; script `gitpanel = gitpanel.__main__:main`.
   - `[tool.pixi.workspace]` channels `conda-forge`, platforms `linux-64`, `osx-arm64`, `osx-64`.

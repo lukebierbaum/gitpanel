@@ -120,6 +120,9 @@ class Git:
         except OSError as e:
             CONSOLE.finish(entry, None, stderr=str(e))
             raise
+        except asyncio.CancelledError:  # cancelled while the process was starting
+            CONSOLE.finish(entry, None, cancelled=True)
+            raise
         try:
             out, err = await proc.communicate(input)
         except asyncio.CancelledError:
@@ -145,17 +148,21 @@ class Git:
         entry = CONSOLE.start(args, self.cwd, read_only=read_only)
         captured: list[bytes] = []
         size = 0
-        proc = await asyncio.create_subprocess_exec(
-            self.git_exe,
-            *BASE_CONFIG,
-            *args,
-            cwd=self.cwd,
-            env=self._env(env, read_only=read_only),
-            stdin=asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            limit=1 << 24,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                self.git_exe,
+                *BASE_CONFIG,
+                *args,
+                cwd=self.cwd,
+                env=self._env(env, read_only=read_only),
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                limit=1 << 24,
+            )
+        except BaseException:
+            CONSOLE.finish(entry, None, cancelled=True)
+            raise
         assert proc.stdout is not None
         buf = b""
         try:
@@ -183,7 +190,8 @@ class Git:
             if proc.returncode is None:
                 proc.kill()
                 await proc.wait()
-                CONSOLE.finish(entry, None, cancelled=True)
+            if entry.running:
+                CONSOLE.finish(entry, proc.returncode, cancelled=True)
 
     async def rev_parse(self, *args: str) -> str:
         res = await self.run("rev-parse", *args, read_only=True)

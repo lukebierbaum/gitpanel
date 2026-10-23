@@ -38,3 +38,18 @@ async def test_poll_detects_external_commit(repo):
     changed = session.poll_changes()
     assert changed & ChangeKind.REFS or changed & ChangeKind.HEAD
     assert changed & ChangeKind.INDEX
+
+
+async def test_console_closes_entries_for_cancelled_calls(repo):
+    import asyncio
+    import contextlib
+
+    from gitpanel.git.console import CONSOLE
+
+    CONSOLE.clear()
+    task = asyncio.create_task(repo.g.run("log", "--all", read_only=True))
+    await asyncio.sleep(0)  # let it start, then cancel mid-flight
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    assert CONSOLE.entries and not any(e.running for e in CONSOLE.entries)
