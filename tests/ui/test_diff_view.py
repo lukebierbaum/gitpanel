@@ -44,3 +44,44 @@ async def test_side_by_side_scrolls_sideways_to_show_long_lines():
         assert "END" in line
         # line numbers stay in place while the text scrolls
         assert line.split("│")[1].lstrip().startswith("2 +")
+
+
+async def test_ranges_extend_clear_and_lists_drop_them_on_plain_moves():
+    from datetime import UTC, datetime
+
+    from gitpanel.git.graph import GraphRow
+    from gitpanel.git.models import Commit
+    from gitpanel.ui.widgets.commit_table import CommitTable, LogRow
+
+    class Host(App):
+        def compose(self) -> ComposeResult:
+            yield DiffView(id="d")
+            yield CommitTable(id="t")
+
+    app = Host()
+    async with app.run_test(size=(80, 30)) as pilot:
+        diff = app.query_one(DiffView)
+        diff.set_diff(None, parse_diff(DIFF)[0])
+        diff.focus()
+        diff.cursor = 0
+        await pilot.press("shift+down", "shift+down")
+        assert diff.selection_range() == (0, 2)
+        await pilot.press("down")  # text views keep extending from the anchor
+        assert diff.selection_range() == (0, 3)
+        await pilot.press("escape")
+        assert diff.anchor is None
+
+        when = datetime(2026, 1, 1, tzinfo=UTC)
+        commits = [
+            Commit(f"{i:040x}", subject=f"c{i}", author_name="a", author_date=when)
+            for i in range(5)
+        ]
+        table = app.query_one(CommitTable)
+        table.set_rows(
+            [LogRow(c, GraphRow(c.sha, 0, (("●", 0),))) for c in commits], has_more=False
+        )
+        table.focus()
+        await pilot.press("shift+down", "shift+down")
+        assert [r.commit.subject for r in table.selected_rows()] == ["c0", "c1", "c2"]
+        await pilot.press("down")  # lists drop the range on a plain move
+        assert table.anchor is None and table.cursor == 3

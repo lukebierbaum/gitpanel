@@ -17,7 +17,7 @@ from textual.widgets.tree import TreeNode
 from ...git.models import Ref
 from ...git.refs import BranchRef
 from ..colors import C
-from ..fmt import ahead_behind
+from .branch_label import branch_label, favorites_first
 
 Kind = Literal["all", "head", "ref", "group"]
 
@@ -97,10 +97,7 @@ class BranchPanel(Tree[PanelItem]):
         )
         self.root.add_leaf(head_label, PanelItem("head", "HEAD", key="head"))
 
-        def fav_first(b: Any) -> tuple[bool, str]:
-            return (b.name not in favorites, b.short.lower())
-
-        self._fav_first = fav_first
+        self._fav_first = favorites_first(favorites)
         local = [b for b in branches if b.is_local]
         node = self._group("Local", "group:local", len(local))
         self._add_nested(node, local, "", "local")
@@ -162,25 +159,18 @@ class BranchPanel(Tree[PanelItem]):
         return self.root.add(label, PanelItem("group", key=key), expand=key not in self._collapsed)
 
     def _label(self, ref: Any, strip: str = "") -> Text:
-        t = Text()
-        marked = ref.name in self.marked
-        is_current = ref.name == self._data.get("current")
-        t.append("▣ " if marked else "  ", style=f"bold {C.green}")
-        # a space after each symbol: fonts often draw ★ ● wider than one cell
-        t.append("★ " if ref.name in self._data.get("favorites", set()) else "  ", style=C.amber)
-        t.append("● " if is_current else "  ", style=C.green)
-        t.append(ref.short.removeprefix(strip), style=f"bold {C.green}" if is_current else "")
-        if isinstance(ref, BranchRef):
-            wt = ref.worktree
-            if wt is not None and wt.resolve() != self._data.get("active"):
-                t.append(" ⎇", style=C.teal)
-            if ref.ahead or ref.behind:
-                t.append(f" {ahead_behind(ref.ahead, ref.behind)}", style="dim")
-            if ref.is_local and self._data.get("has_remotes"):
-                if ref.gone:
-                    t.append(" upstream gone", style="dim italic")
-                elif ref.upstream is None:
-                    t.append(" local", style=C.amber)  # never pushed / no upstream
+        t = Text("▣ " if ref.name in self.marked else "  ", style=f"bold {C.current}")
+        t.append_text(
+            branch_label(
+                ref,
+                current=self._data.get("current"),
+                favorites=self._data.get("favorites", set()),
+                active=self._data.get("active"),
+                has_remotes=self._data.get("has_remotes", False),
+                compact=True,
+                strip=strip,
+            )
+        )
         return t
 
     def _restore(self, prev: str | None) -> None:

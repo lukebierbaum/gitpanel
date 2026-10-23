@@ -6,13 +6,8 @@ from dataclasses import dataclass, field
 
 from rich.segment import Segment
 from rich.style import Style
-from textual import events
-from textual.actions import SkipAction
-from textual.binding import Binding
 from textual.geometry import Size
 from textual.message import Message
-from textual.reactive import reactive
-from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
 from ...git.graph import GraphRow
@@ -20,6 +15,7 @@ from ...git.markers import Marker
 from ...git.models import Commit
 from ..colors import C
 from ..fmt import fmt_date
+from .cursor_view import CursorView, overlay
 
 # marker kind → (fg, bg, bold, italic) colour names; resolved per theme in marker_style()
 MARKER_LOOK = {
@@ -65,7 +61,7 @@ class LogRow:
         return any(m.kind == "head" or m.label == "HEAD" for m in self.markers)
 
 
-class CommitTable(ScrollView, can_focus=True):
+class CommitTable(CursorView):
     COMPONENT_CLASSES = {
         "commit-table--cursor",
         "commit-table--selected",
@@ -80,19 +76,7 @@ class CommitTable(ScrollView, can_focus=True):
     CommitTable > .commit-table--meta { color: $text-muted; }
     CommitTable > .commit-table--dim { color: $text-disabled; }
     """
-    BINDINGS = [
-        Binding("up,k", "move(-1)", show=False),
-        Binding("down,j", "move(1)", show=False),
-        Binding("pageup", "page(-1)", show=False),
-        Binding("pagedown", "page(1)", show=False),
-        Binding("home", "jump(0)", show=False),
-        Binding("end", "jump(-1)", show=False),
-        Binding("shift+up", "extend(-1)", show=False),
-        Binding("shift+down", "extend(1)", show=False),
-        Binding("escape", "clear_selection", show=False),
-    ]
-
-    cursor: reactive[int] = reactive(0, always_update=True)
+    MOVE_CLEARS_RANGE = True
 
     class CursorChanged(Message):
         def __init__(self, table: CommitTable) -> None:
@@ -105,7 +89,6 @@ class CommitTable(ScrollView, can_focus=True):
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
         self.rows: list[LogRow] = []
-        self.anchor: int | None = None
         self.has_more = False
         self._graph_w = 2
 
@@ -138,67 +121,23 @@ class CommitTable(ScrollView, can_focus=True):
         self.virtual_size = Size(self.size.width, len(self.rows))
 
     # -- selection ------------------------------------------------------------------
+    @property
+    def row_count(self) -> int:
+        return len(self.rows)
+
     def selected_rows(self) -> list[LogRow]:
         if not self.rows:
             return []
-        if self.anchor is None:
-            return [self.rows[self.cursor]]
-        lo, hi = sorted((self.anchor, self.cursor))
-        return self.rows[lo : hi + 1]
+        r = self.selection_range()
+        return self.rows[r[0] : r[1] + 1] if r else [self.rows[self.cursor]]
 
     def selected_commits(self) -> list[Commit]:
         return [r.commit for r in self.selected_rows()]
 
-    def watch_cursor(self) -> None:
-        h = self.scrollable_content_region.height or self.size.height
-        y = self.scroll_offset.y
-        if self.cursor < y:
-            self.scroll_to(y=self.cursor, animate=False)
-        elif h and self.cursor >= y + h:
-            self.scroll_to(y=self.cursor - h + 1, animate=False)
-        self.refresh()
+    def cursor_moved(self) -> None:
         self.post_message(self.CursorChanged(self))
         if self.has_more and self.cursor >= len(self.rows) - 50:
             self.post_message(self.NeedMore())
-
-    def validate_cursor(self, value: int) -> int:
-        return max(0, min(value, len(self.rows) - 1)) if self.rows else 0
-
-    def action_move(self, delta: int) -> None:
-        self.anchor = None
-        self.cursor += delta
-
-    def action_page(self, direction: int) -> None:
-        self.anchor = None
-        self.cursor += direction * max(self.size.height - 1, 1)
-
-    def action_jump(self, where: int) -> None:
-        self.anchor = None
-        self.cursor = 0 if where == 0 else len(self.rows) - 1
-
-    def action_extend(self, delta: int) -> None:
-        if self.anchor is None:
-            self.anchor = self.cursor
-        self.cursor += delta
-
-    def action_clear_selection(self) -> None:
-        if self.anchor is None:
-            raise SkipAction()  # let escape reach the screen (e.g. to close it)
-        if self.anchor is not None:
-            self.anchor = None
-            self.refresh()
-            self.post_message(self.CursorChanged(self))
-
-    def on_click(self, event: events.Click) -> None:
-        row = event.y + self.scroll_offset.y
-        if 0 <= row < len(self.rows):
-            if event.shift:
-                if self.anchor is None:
-                    self.anchor = self.cursor
-            else:
-                self.anchor = None
-            self.cursor = row
-        self.focus()
 
     def on_resize(self) -> None:
         self._recalc()
@@ -254,16 +193,9 @@ class CommitTable(ScrollView, can_focus=True):
         segs.append(Segment(fmt_date(row.commit.author_date).ljust(DATE_W), base + meta))
 
         strip = Strip(segs).crop_extend(0, width, base)
-        overlay: Style | None = None
-        if self.anchor is not None:
-            lo, hi = sorted((self.anchor, self.cursor))
-            if lo <= idx <= hi:
-                overlay = cstyle("commit-table--selected")
-        if idx == self.cursor:
-            overlay = cstyle("commit-table--cursor")
-        if overlay is not None and overlay.bgcolor is not None:
-            top = Style(bgcolor=overlay.bgcolor)
-            strip = Strip(
-                [Segment(s.text, (s.style or Style()) + top) for s in strip], strip.cell_length
-            )
-        return strip
+        return overlay(
+            strip,
+            self.row_highlight(
+                idx, cstyle("commit-table--cursor"), cstyle("commit-table--selected")
+            ),
+        )

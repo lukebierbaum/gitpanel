@@ -8,13 +8,10 @@ from typing import Any
 from rich.segment import Segment
 from rich.style import Style
 from rich.text import Text
-from textual import events, work
-from textual.actions import SkipAction
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.geometry import Size
-from textual.reactive import reactive
-from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
 from ...actions.context import SelectionContext
@@ -22,6 +19,7 @@ from ...git.history import BlameLine, blame
 from ..base import ToolScreen
 from ..colors import C
 from ..fmt import fmt_day
+from ..widgets.cursor_view import CursorView, overlay
 from ..widgets.key_hints import KeyHints
 from ..widgets.title_bar import TitleBar
 
@@ -43,7 +41,7 @@ def age_color(t: datetime | None, newest: datetime, oldest: datetime) -> str:
     return _blend(C.green, C.purple, step / (AGE_STEPS - 1))
 
 
-class BlameView(ScrollView, can_focus=True):
+class BlameView(CursorView):
     COMPONENT_CLASSES = {"blame--cursor", "blame--range", "blame--gutter"}
     DEFAULT_CSS = """
     BlameView { background: $surface; }
@@ -51,22 +49,11 @@ class BlameView(ScrollView, can_focus=True):
     BlameView > .blame--range { background: $accent 25%; }
     BlameView > .blame--gutter { color: $text-muted; }
     """
-    BINDINGS = [
-        Binding("up,k", "move(-1)", show=False),
-        Binding("down,j", "move(1)", show=False),
-        Binding("pageup", "move(-20)", show=False),
-        Binding("pagedown", "move(20)", show=False),
-        Binding("shift+up", "extend(-1)", show=False),
-        Binding("shift+down", "extend(1)", show=False),
-        Binding("v", "toggle_range", show=False),
-        Binding("escape", "clear", show=False),
-    ]
-    cursor: reactive[int] = reactive(0, always_update=True)
+    BINDINGS = [Binding("v", "toggle_range", "Select lines", show=False)]
 
     def __init__(self, *, id: str | None = None) -> None:
         super().__init__(id=id)
         self.lines: list[BlameLine] = []
-        self.anchor: int | None = None
         self._newest = datetime.now(UTC)
         self._oldest = datetime.now(UTC)
 
@@ -79,49 +66,17 @@ class BlameView(ScrollView, can_focus=True):
         self.cursor = max(0, min((focus_line or 1) - 1, len(lines) - 1))
         self.refresh()
 
-    def validate_cursor(self, v: int) -> int:
-        return max(0, min(v, len(self.lines) - 1)) if self.lines else 0
+    @property
+    def row_count(self) -> int:
+        return len(self.lines)
 
-    def watch_cursor(self) -> None:
-        h = self.size.height or 20
-        y = self.scroll_offset.y
-        if self.cursor < y:
-            self.scroll_to(y=self.cursor, animate=False)
-        elif self.cursor >= y + h:
-            self.scroll_to(y=self.cursor - h + 1, animate=False)
-        self.refresh()
+    def cursor_moved(self) -> None:
         self.screen.refresh_hints()  # type: ignore[attr-defined]
-
-    def action_move(self, d: int) -> None:
-        self.cursor += d
-
-    def action_extend(self, d: int) -> None:
-        if self.anchor is None:
-            self.anchor = self.cursor
-        self.cursor += d
-
-    def action_toggle_range(self) -> None:
-        self.anchor = None if self.anchor is not None else self.cursor
-        self.refresh()
-        self.screen.refresh_hints()  # type: ignore[attr-defined]
-
-    def action_clear(self) -> None:
-        if self.anchor is None:
-            raise SkipAction()
-        self.anchor = None
-        self.refresh()
 
     def range(self) -> tuple[int, int] | None:
-        if self.anchor is None:
-            return None
-        lo, hi = sorted((self.anchor, self.cursor))
-        return lo + 1, hi + 1
-
-    def on_click(self, event: events.Click) -> None:
-        row = event.y + self.scroll_offset.y
-        if 0 <= row < len(self.lines):
-            self.cursor = row
-        self.focus()
+        """The selected lines, 1-based (for `log -L`)."""
+        r = self.selection_range()
+        return (r[0] + 1, r[1] + 1) if r else None
 
     def render_line(self, y: int) -> Strip:
         idx = y + self.scroll_offset.y
@@ -149,18 +104,7 @@ class BlameView(ScrollView, can_focus=True):
             Segment(ln.text.replace("\t", "    "), base),
         ]
         strip = Strip(segs).crop_extend(0, width, base)
-        overlay = None
-        r = self.range()
-        if r and r[0] - 1 <= idx <= r[1] - 1:
-            overlay = cs("blame--range")
-        if idx == self.cursor:
-            overlay = cs("blame--cursor")
-        if overlay is not None and overlay.bgcolor is not None:
-            top = Style(bgcolor=overlay.bgcolor)
-            strip = Strip(
-                [Segment(s.text, (s.style or Style()) + top) for s in strip], strip.cell_length
-            )
-        return strip
+        return overlay(strip, self.row_highlight(idx, cs("blame--cursor"), cs("blame--range")))
 
 
 class AnnotateScreen(ToolScreen):

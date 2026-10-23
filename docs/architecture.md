@@ -68,6 +68,8 @@ gitpanel/
                               # ListTable (every table-like list: filter bar, column sort, flexible column)
                               # FileList (a change's files beside a DiffView: labels, selection)
                               # TitleBar (header line: title · info · key reminders)
+                              # CursorView (row cursor + range base for DiffView, CommitTable, annotate)
+                              # branch_label (branch/tag rendering, favourites)
     screens/                  # commit, log, branches, worktrees, conflicts, history, annotate, shelf, rebase_editor, push, compare
     dialogs.py
 tests/

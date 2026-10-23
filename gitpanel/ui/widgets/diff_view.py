@@ -7,18 +7,15 @@ from typing import Literal
 
 from rich.segment import Segment
 from rich.style import Style
-from textual import events
-from textual.actions import SkipAction
 from textual.binding import Binding
 from textual.geometry import Size
 from textual.message import Message
-from textual.reactive import reactive
-from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
 from ...git.patch import DiffSource, FileDiff, Selection
 from ..colors import C
 from ..fmt import plural
+from .cursor_view import CursorView, overlay
 
 GUTTER = 12  # "12345 12345 "
 SPLIT_GUTTER = 7  # "12345 +" on each side of a side-by-side row
@@ -130,7 +127,7 @@ def build_rows(diff: FileDiff | None, message: str = "") -> list[Row]:
     return rows
 
 
-class DiffView(ScrollView, can_focus=True):
+class DiffView(CursorView):
     """Shows one FileDiff. `space` acts on the hunk under the cursor, or on the
     lines of a range selection started with `v` / shift+arrows."""
 
@@ -162,23 +159,12 @@ class DiffView(ScrollView, can_focus=True):
     DiffView > .diff-view--hunk-active { background: $foreground 6%; }
     """
 
-    BINDINGS = [
-        Binding("up,k", "cursor(-1)", "Up", show=False),
-        Binding("down,j", "cursor(1)", "Down", show=False),
-        Binding("pageup", "page(-1)", "Page up", show=False),
-        Binding("pagedown", "page(1)", "Page down", show=False),
-        Binding("home", "jump(0)", "Top", show=False),
-        Binding("end", "jump(-1)", "Bottom", show=False),
-        Binding("shift+up", "extend(-1)", "Extend selection up", show=False),
-        Binding("shift+down", "extend(1)", "Extend selection down", show=False),
+    BINDINGS = [  # plus CursorView's movement and selection keys
         Binding("v", "toggle_range", "Select lines", show=False),
-        Binding("escape", "clear_range", "Clear selection", show=False),
         Binding("n,f7", "next_hunk(1)", "Next change", show=False),
         Binding("p,shift+f7", "next_hunk(-1)", "Previous change", show=False),
         Binding("s", "toggle_split", "Side-by-side", show=False),
     ]
-
-    cursor: reactive[int] = reactive(0, always_update=True)
 
     class SelectionChanged(Message):
         def __init__(self, view: DiffView) -> None:
@@ -194,7 +180,6 @@ class DiffView(ScrollView, can_focus=True):
         self.source: DiffSource | None = None
         self.diff: FileDiff | None = None
         self.rows: list[Row] = []
-        self.anchor: int | None = None
         self.split = False
         self._message = ""
         # (side, line) → mark shown in the gutter, e.g. review comments ("LEFT" = old side)
@@ -294,9 +279,14 @@ class DiffView(ScrollView, can_focus=True):
     def has_range(self) -> bool:
         return self.anchor is not None
 
+    @property
+    def row_count(self) -> int:
+        return len(self.rows)
+
     def _range(self) -> tuple[int, int]:
-        assert self.anchor is not None
-        return min(self.anchor, self.cursor), max(self.anchor, self.cursor)
+        r = self.selection_range()
+        assert r is not None
+        return r
 
     def selection(self) -> Selection | None:
         """Lines of the active range, else the hunk under the cursor."""
@@ -334,54 +324,20 @@ class DiffView(ScrollView, can_focus=True):
         return "hunk"
 
     # -- actions ----------------------------------------------------------------
-    def watch_cursor(self, old: int, new: int) -> None:
-        self._scroll_cursor_into_view()
-        self.refresh()
+    def cursor_moved(self) -> None:
         self.post_message(self.SelectionChanged(self))
 
-    def validate_cursor(self, value: int) -> int:
-        return max(0, min(value, len(self.rows) - 1)) if self.rows else 0
-
-    def _scroll_cursor_into_view(self) -> None:
-        h = self.scrollable_content_region.height or self.size.height
-        y = self.scroll_offset.y
-        if self.cursor < y:
-            self.scroll_to(y=self.cursor, animate=False)
-        elif h and self.cursor >= y + h:
-            self.scroll_to(y=self.cursor - h + 1, animate=False)
-
-    def action_cursor(self, delta: int) -> None:
-        self.cursor += delta
-
-    def action_page(self, direction: int) -> None:
-        self.cursor += direction * max(self.size.height - 1, 1)
-
-    def action_jump(self, where: int) -> None:
-        self.cursor = 0 if where == 0 else len(self.rows) - 1
-
     def action_extend(self, delta: int) -> None:
-        if self.split:
+        if self.split:  # line ranges only in the unified view
             self.cursor += delta
             return
-        if self.anchor is None:
-            self.anchor = self.cursor
-        self.cursor += delta
+        super().action_extend(delta)
 
     def action_toggle_range(self) -> None:
         if self.split:
             self.notify("Line selection works in the unified view (press s)", severity="warning")
             return
-        self.anchor = None if self.anchor is not None else self.cursor
-        self.refresh()
-        self.post_message(self.SelectionChanged(self))
-
-    def action_clear_range(self) -> None:
-        if self.anchor is None:
-            raise SkipAction()
-        if self.anchor is not None:
-            self.anchor = None
-            self.refresh()
-            self.post_message(self.SelectionChanged(self))
+        super().action_toggle_range()
 
     def action_next_hunk(self, direction: int) -> None:
         """Jump to the next/previous block of changed lines."""
@@ -401,17 +357,6 @@ class DiffView(ScrollView, can_focus=True):
                 while i > 0 and is_change(i - 1):
                     i -= 1
             self.cursor = i
-
-    def on_click(self, event: events.Click) -> None:
-        row = event.y + self.scroll_offset.y
-        if 0 <= row < len(self.rows):
-            if event.shift:
-                if self.anchor is None:
-                    self.anchor = self.cursor
-            else:
-                self.anchor = None
-            self.cursor = row
-        self.focus()
 
     # -- rendering ------------------------------------------------------------------
     def render_line(self, y: int) -> Strip:
@@ -453,16 +398,9 @@ class DiffView(ScrollView, can_focus=True):
             gutter = " " * GUTTER
             body = row.text
 
-        overlay: Style | None = None
-        if self.anchor is not None:
-            lo, hi = self._range()
-            if lo <= idx <= hi:
-                overlay = style("diff-view--selected")
-        elif row.hunk >= 0 and self.cursor < len(self.rows):
-            if self.rows[self.cursor].hunk == row.hunk and self.has_focus:
-                overlay = style("diff-view--hunk-active")
-        if idx == self.cursor:
-            overlay = style("diff-view--cursor")
+        highlight = self.row_highlight(
+            idx, style("diff-view--cursor"), style("diff-view--selected")
+        ) or self._hunk_highlight(row)
 
         segments = [
             *(
@@ -475,14 +413,15 @@ class DiffView(ScrollView, can_focus=True):
         strip = Strip(segments)
         line_style = base + text_style if row.marker in "+-" and row.kind == "line" else base
         strip = strip.crop_extend(scroll_x, scroll_x + width, line_style)
-        if overlay is not None and overlay.bgcolor is not None:
-            # layer the highlight on top of each segment's own background
-            top = Style(bgcolor=overlay.bgcolor)
-            strip = Strip(
-                [Segment(seg.text, (seg.style or Style()) + top, seg.control) for seg in strip],
-                strip.cell_length,
-            )
-        return strip
+        return overlay(strip, highlight)
+
+    def _hunk_highlight(self, row: Row) -> Style | None:
+        """A faint band over the hunk the cursor is in (while focused, without a range)."""
+        if self.anchor is not None or row.hunk < 0 or self.cursor >= len(self.rows):
+            return None
+        if self.has_focus and self.rows[self.cursor].hunk == row.hunk:
+            return self.get_component_rich_style("diff-view--hunk-active")
+        return None
 
     @staticmethod
     def line_ref(row: Row) -> tuple[str, int] | None:
@@ -540,17 +479,9 @@ class DiffView(ScrollView, can_focus=True):
         segs.append(Segment("│", base + style("diff-view--gutter")))
         segs += self._side_segments(row.pair, right, base, offset)
         strip = Strip(segs).crop_extend(0, width, base)
-        overlay = None
         if idx == self.cursor:
-            overlay = style("diff-view--cursor")
-        elif self.rows[self.cursor].hunk == row.hunk and row.hunk >= 0 and self.has_focus:
-            overlay = style("diff-view--hunk-active")
-        if overlay is not None and overlay.bgcolor is not None:
-            top = Style(bgcolor=overlay.bgcolor)
-            strip = Strip(
-                [Segment(sg.text, (sg.style or Style()) + top) for sg in strip], strip.cell_length
-            )
-        return strip
+            return overlay(strip, style("diff-view--cursor"))
+        return overlay(strip, self._hunk_highlight(row))
 
     def on_mount(self) -> None:
         # diffs opened later (History, Shelf…) also start in the configured mode

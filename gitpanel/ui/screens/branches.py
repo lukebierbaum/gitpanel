@@ -5,21 +5,17 @@ from __future__ import annotations
 from typing import Any
 
 from rich.text import Text
-from textual import events, on, work
+from textual import on, work
 from textual.app import ComposeResult
-from textual.binding import Binding
-from textual.containers import Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Input, Label, OptionList
+from textual.widgets import Input, OptionList
 from textual.widgets.option_list import Option
 
 from ...actions.context import Scope, SelectionContext
 from ...git import refs as R
 from ...git import tags as T
-from ...git.models import Ref
-from ..base import GpMixin, ScreenHints
+from ..base import FilterPopup, ScreenHints
 from ..colors import C
-from ..fmt import ahead_behind
+from ..widgets.branch_label import branch_label, favorites_first, load_favorites
 from ..widgets.key_hints import KeyHints
 
 
@@ -37,19 +33,12 @@ def _matches(query: str, name: str) -> bool:
     return True
 
 
-class BranchesPopup(GpMixin, ScreenHints, ModalScreen[None]):
+class BranchesPopup(ScreenHints, FilterPopup):
+    POPUP_TITLE = "Git Branches"
+    PLACEHOLDER = "Search branches and tags"
     DEFAULT_CSS = """
-    BranchesPopup { align: center top; background: $background 40%; }
-    BranchesPopup #branches-box {
-        width: 96; max-width: 95%; height: 80%; margin-top: 2;
-        border: thick $primary; background: $panel; padding: 0 1;
-    }
-    BranchesPopup #branches-title { text-style: bold; color: $accent; }
-    BranchesPopup #branch-search { margin: 1 0 0 0; }
-    BranchesPopup #branch-list { height: 1fr; background: $panel; border: none; }
-    BranchesPopup KeyHints { background: $panel; }
+    BranchesPopup .fp-box { width: 96; height: 80%; }
     """
-    BINDINGS = [Binding("escape", "dismiss", "Close")]
     # only its own actions in the hint bar (plain letters go to the search box)
     HINT_EXTRAS = [("alt+enter", "more actions"), ("esc", "close")]
 
@@ -58,15 +47,10 @@ class BranchesPopup(GpMixin, ScreenHints, ModalScreen[None]):
         self._refs: dict[str, Any] = {}
         self._data: dict[str, Any] = {}
 
-    def compose(self) -> ComposeResult:
-        with Vertical(id="branches-box"):
-            yield Label("Git Branches", id="branches-title")
-            yield Input(placeholder="Search branches and tags", id="branch-search")
-            yield OptionList(id="branch-list")
-            yield KeyHints(id="branch-hints")
+    def compose_footer(self) -> ComposeResult:
+        yield KeyHints(id="branch-hints")
 
     def on_mount(self) -> None:
-        self.query_one(Input).focus()
         self.reload()
 
     # -- data -----------------------------------------------------------------------
@@ -80,10 +64,11 @@ class BranchesPopup(GpMixin, ScreenHints, ModalScreen[None]):
             "branches": await R.branches(git),
             "tags": await T.tags(git),
             "recent": await R.recent_branches(git),
-            "favorites": R.Favorites(session.private_dir(shared=True) / "favorites.json").load(),
+            "favorites": load_favorites(session),
             "current": session.active.branch,
             "active": session.active.path.resolve(),
         }
+        self._data["has_remotes"] = any(b.is_remote for b in self._data["branches"])
         self.rebuild()
 
     def rebuild(self) -> None:
@@ -95,14 +80,12 @@ class BranchesPopup(GpMixin, ScreenHints, ModalScreen[None]):
         ol.clear_options()
         self._refs.clear()
         branches = self._data["branches"]
-        favs = self._data["favorites"]
+        fav_first = favorites_first(self._data["favorites"])
         by_short = {b.short: b for b in branches if b.is_local}
-        local = sorted(
-            (b for b in branches if b.is_local), key=lambda b: (b.name not in favs, b.short.lower())
-        )
+        local = sorted((b for b in branches if b.is_local), key=fav_first)
         remote = sorted(
             (b for b in branches if b.is_remote),
-            key=lambda b: (b.name not in favs, b.short.lower()),
+            key=fav_first,
         )
         recent = [by_short[n] for n in self._data["recent"] if n in by_short]
         sections: list[tuple[str, list[Any]]] = [
@@ -132,24 +115,13 @@ class BranchesPopup(GpMixin, ScreenHints, ModalScreen[None]):
             )
 
     def _label(self, ref: Any) -> Text:
-        t = Text()
-        favs = self._data.get("favorites", set())
-        is_current = ref.name == self._data.get("current")
-        t.append("★ " if ref.name in favs else "  ", style=C.amber)
-        t.append("● " if is_current else "  ", style=C.green)
-        t.append(ref.short, style=f"bold {C.green}" if is_current else "")
-        if isinstance(ref, Ref):  # tag
-            return t
-        wt = ref.worktree
-        if wt is not None and wt.resolve() != self._data.get("active"):
-            t.append(f"  ⎇ {wt.name}", style=f"italic {C.teal}")
-        if ref.ahead or ref.behind:
-            t.append(f"  {ahead_behind(ref.ahead, ref.behind)}", style=C.purple)
-        if ref.gone:
-            t.append("  upstream gone", style="dim italic")
-        elif ref.upstream_short:
-            t.append(f"  → {ref.upstream_short}", style="dim")
-        return t
+        return branch_label(
+            ref,
+            current=self._data.get("current"),
+            favorites=self._data.get("favorites", set()),
+            active=self._data.get("active"),
+            has_remotes=self._data.get("has_remotes", False),
+        )
 
     def selected_ref(self) -> Any | None:
         found = self.query(OptionList)
@@ -159,7 +131,7 @@ class BranchesPopup(GpMixin, ScreenHints, ModalScreen[None]):
         return self._refs.get(opt.id) if opt and opt.id else None
 
     # -- interaction --------------------------------------------------------------------
-    @on(Input.Changed, "#branch-search")
+    @on(Input.Changed, ".fp-search")
     def _search(self) -> None:
         self.rebuild()
 
@@ -170,19 +142,6 @@ class BranchesPopup(GpMixin, ScreenHints, ModalScreen[None]):
     @on(OptionList.OptionSelected)
     def _selected(self) -> None:
         self.gp.dispatch_id("branch.checkout")
-
-    def on_key(self, event: events.Key) -> None:
-        if event.key in ("up", "down", "pageup", "pagedown") and isinstance(self.focused, Input):
-            ol = self.query_one(OptionList)
-            action = {
-                "up": ol.action_cursor_up,
-                "down": ol.action_cursor_down,
-                "pageup": ol.action_page_up,
-                "pagedown": ol.action_page_down,
-            }[event.key]
-            action()
-            event.stop()
-            event.prevent_default()
 
     # -- context ----------------------------------------------------------------------------
     def context(self, base: SelectionContext) -> SelectionContext:

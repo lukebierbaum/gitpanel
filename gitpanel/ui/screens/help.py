@@ -4,26 +4,24 @@ from __future__ import annotations
 
 from rich.text import Text
 from textual import on
-from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.screen import ModalScreen
-from textual.widgets import Input, Label, OptionList
+from textual.widgets import Input, OptionList
 from textual.widgets.option_list import Option
 
 from ...actions.context import SelectionContext
-from ..base import GpMixin
+from ..base import FilterPopup
 from ..colors import C
 from ..widgets.key_hints import pretty_key
 
 
-class HelpScreen(GpMixin, ModalScreen[None]):
+class HelpScreen(FilterPopup):
+    POPUP_TITLE = (
+        "Keys  ·  bold = available here  ·  remap in ~/.config/gitpanel/config.toml [keys]"
+    )
+    PLACEHOLDER = "Filter actions"
     DEFAULT_CSS = """
     HelpScreen { align: center middle; }
-    HelpScreen #help-box { width: 110; max-width: 95%; height: 90%; border: thick $primary;
-                           background: $panel; padding: 0 1; }
-    HelpScreen #help-title { text-style: bold; color: $accent; }
-    HelpScreen OptionList { height: 1fr; background: $panel; border: none; }
+    HelpScreen .fp-box { width: 110; height: 90%; margin-top: 0; }
     """
     BINDINGS = [Binding("escape,question_mark", "dismiss", "Close")]
 
@@ -31,17 +29,7 @@ class HelpScreen(GpMixin, ModalScreen[None]):
         super().__init__()
         self.ctx = ctx
 
-    def compose(self) -> ComposeResult:
-        with Vertical(id="help-box"):
-            yield Label(
-                "Keys  ·  bold = available here  ·  remap in ~/.config/gitpanel/config.toml [keys]",
-                id="help-title",
-            )
-            yield Input(placeholder="Filter actions", id="help-filter")
-            yield OptionList(id="help-list")
-
     def on_mount(self) -> None:
-        self.query_one(Input).focus()
         self.rebuild()
 
     @on(Input.Changed)
@@ -68,14 +56,3 @@ class HelpScreen(GpMixin, ModalScreen[None]):
                 if a.screens:
                     t.append(f"   ({', '.join(sorted(a.screens))})", style="dim")
                 ol.add_option(Option(t, id=a.id))
-
-    def on_key(self, event) -> None:  # type: ignore[no-untyped-def]
-        if event.key in ("up", "down", "pageup", "pagedown") and isinstance(self.focused, Input):
-            ol = self.query_one(OptionList)
-            {
-                "up": ol.action_cursor_up,
-                "down": ol.action_cursor_down,
-                "pageup": ol.action_page_up,
-                "pagedown": ol.action_page_down,
-            }[event.key]()
-            event.stop()

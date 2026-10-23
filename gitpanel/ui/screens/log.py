@@ -29,6 +29,7 @@ from ...git.markers import collect, default_providers
 from ..base import ToolWindow
 from ..colors import C
 from ..fmt import fmt_date
+from ..widgets.branch_label import load_favorites
 from ..widgets.branch_panel import BranchPanel
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
@@ -137,7 +138,7 @@ class LogView(ToolWindow):
         self.query_one(BranchPanel).populate(
             branches,
             await T.tags(git),
-            R.Favorites(session.private_dir(shared=True) / "favorites.json").load(),
+            load_favorites(session),
             session.active.branch,
             session.active.path.resolve(),
         )
