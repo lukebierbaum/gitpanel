@@ -85,3 +85,46 @@ async def test_ranges_extend_clear_and_lists_drop_them_on_plain_moves():
         assert [r.commit.subject for r in table.selected_rows()] == ["c0", "c1", "c2"]
         await pilot.press("down")  # lists drop the range on a plain move
         assert table.anchor is None and table.cursor == 3
+
+
+async def test_hidden_unchanged_lines_expand_and_whole_file(repo):
+    from gitpanel.ui.app import GitPanelApp
+
+    from .test_commit_view import move_to, settle
+
+    lines = [f"line {i}" for i in range(1, 41)]
+    repo.commit({"f.txt": "\n".join(lines) + "\n"}, "base")
+    changed = list(lines)
+    changed[4] = "FIVE"
+    changed[30] = "THIRTY-ONE"
+    (repo.path / "f.txt").write_text("\n".join(changed) + "\n")
+    app = GitPanelApp(repo.path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await settle(pilot, app)
+        move_to(app, "unstaged", "f.txt")
+        await settle(pilot, app)
+        diff = app.query_one("#diff", DiffView)
+        diff.split = False
+        diff._rebuild()
+        await settle(pilot, app)
+        gaps = [r.text for r in diff.rows if r.kind == "gap"]
+        assert gaps == ["⋯ 1 unchanged line", "⋯ 19 unchanged lines", "⋯ 6 unchanged lines"]
+        middle = next(i for i, r in enumerate(diff.rows) if r.text == "⋯ 19 unchanged lines")
+        diff.focus()
+        diff.cursor = middle
+        await pilot.press("enter")
+        await settle(pilot, app)
+        assert [r.text for r in diff.rows if r.kind == "gap"] == gaps[:1] + gaps[2:]
+        row = diff.rows[diff.cursor]
+        assert (row.text, row.old_no, row.new_no) == ("line 9", 9, 9)
+        await pilot.press("f")  # whole file: every line, no gaps or hunk headers
+        await settle(pilot, app)
+        assert not any(r.kind in ("gap", "hunk") for r in diff.rows)
+        assert [r.new_no for r in diff.rows if r.marker != "-"] == list(range(1, 41))
+        assert diff.rows[diff.cursor].text == "line 9"  # still on the same line
+        # staging a hunk still works on the whole-file view
+        diff.cursor = next(i for i, r in enumerate(diff.rows) if r.text == "FIVE")
+        await pilot.press("space")
+        await settle(pilot, app)
+        staged = repo.git("diff", "--cached")
+        assert "+FIVE" in staged and "THIRTY-ONE" not in staged

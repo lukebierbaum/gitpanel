@@ -15,6 +15,7 @@ theme = "hulk"               # hulk, hulk-light, or any Textual theme (textual-d
 [diff]
 side_by_side = false         # start diffs side-by-side
 context = 3                  # context lines around changes
+full_file = false            # start diffs showing the whole file (f toggles)
 
 [log]
 branch_folders = true        # group feature/x, release/y … into folders in the Log's branch panel
@@ -58,6 +59,7 @@ class Config:
     pr_default_query: str = "mine"
     merge_method: str = "squash"
     diff_context: int = 3
+    diff_full_file: bool = False
     worktree_template: str = "../{repo}.worktrees/{branch}"
     journal_keep: int = 200
     journal_max_age_days: int = 30
@@ -96,6 +98,7 @@ def _merge(cfg: Config, data: dict[str, Any], origin: str) -> None:
     get("prs", "default_query", str, "pr_default_query")
     get("prs", "merge_method", str, "merge_method")
     get("diff", "context", int, "diff_context")
+    get("diff", "full_file", bool, "diff_full_file")
     get("worktrees", "path_template", str, "worktree_template")
     get("journal", "keep", int, "journal_keep")
     get("journal", "max_age_days", int, "journal_max_age_days")

@@ -388,7 +388,7 @@ class LogView(ToolWindow):
         if isinstance(focused, CommitTable):
             return [("/", "filter"), ("shift+↑↓", "select"), ("[", "branches")]
         if isinstance(focused, DiffView):
-            return [("s", "side-by-side"), ("n/p", "next/prev change")]
+            return [("s", "side-by-side"), ("n/p", "next/prev change"), ("f", "whole file")]
         return []
 
     def handle_event(self, event: str, data: dict[str, Any]) -> None:

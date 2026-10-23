@@ -1,4 +1,8 @@
-"""Unified diff view with hunk and line selection (Line API, scales to large diffs)."""
+"""Unified diff view with hunk and line selection (Line API, scales to large diffs).
+
+Unchanged stretches the diff leaves out show as `⋯ N unchanged lines` rows: `enter` or a
+click expands one, `f` shows the whole file. The text for them is read in the background
+(`patch.unchanged_text`) whenever a diff is shown."""
 
 from __future__ import annotations
 
@@ -7,11 +11,13 @@ from typing import Literal
 
 from rich.segment import Segment
 from rich.style import Style
+from textual import events, work
 from textual.binding import Binding
 from textual.geometry import Size
 from textual.message import Message
 from textual.strip import Strip
 
+from ...git import patch as P
 from ...git.patch import DiffSource, FileDiff, Selection
 from ..colors import C
 from ..fmt import plural
@@ -23,7 +29,7 @@ SPLIT_GUTTER = 7  # "12345 +" on each side of a side-by-side row
 
 @dataclass(frozen=True)
 class Row:
-    kind: Literal["info", "hunk", "line"]
+    kind: Literal["info", "hunk", "line", "gap"]  # gap: hidden unchanged lines (line = gap no.)
     text: str
     hunk: int = -1
     line: int = -1
@@ -39,9 +45,16 @@ class Row:
         return self.marker in "+-" or (self.pair is not None and self.pair.marker in "+-")
 
 
-def build_split_rows(diff: FileDiff | None, message: str = "") -> list[Row]:
+def build_split_rows(
+    diff: FileDiff | None,
+    message: str = "",
+    *,
+    content: list[str] | None = None,
+    expanded: frozenset[int] = frozenset(),
+    full: bool = False,
+) -> list[Row]:
     """Side-by-side rows: left = old side, `pair` = new side; change blocks are zipped."""
-    unified = build_rows(diff, message)
+    unified = build_rows(diff, message, content=content, expanded=expanded, full=full)
     out: list[Row] = []
     i = 0
     blank = Row("line", "", marker="")
@@ -97,7 +110,20 @@ def build_split_rows(diff: FileDiff | None, message: str = "") -> list[Row]:
     return out
 
 
-def build_rows(diff: FileDiff | None, message: str = "") -> list[Row]:
+def _plain(text: str) -> str:
+    return text.replace("\t", "    ").rstrip("\r")
+
+
+def build_rows(
+    diff: FileDiff | None,
+    message: str = "",
+    *,
+    content: list[str] | None = None,
+    expanded: frozenset[int] = frozenset(),
+    full: bool = False,
+) -> list[Row]:
+    """Rows for `diff`. With `content` (the new file's lines), the unchanged stretches
+    between hunks are shown as gap rows, or as lines when `full` or listed in `expanded`."""
     if diff is None:
         return [Row("info", message)] if message else []
     rows: list[Row] = []
@@ -110,13 +136,31 @@ def build_rows(diff: FileDiff | None, message: str = "") -> list[Row]:
             rows.append(Row("info", f"Renamed from {diff.old_path}"))
         else:
             rows.append(Row("info", "No content changes"))
+    with_gaps = bool(diff.hunks) and not diff.binary and diff.status not in ("A", "D")
+    gaps = P.gaps(diff, len(content) if content is not None else None) if with_gaps else []
+
+    def gap(g: int) -> None:
+        if not gaps:
+            return
+        first, last, offset = gaps[g]
+        if last < first:
+            return
+        if content is not None and (full or g in expanded):
+            for n in range(first, min(last, len(content)) + 1):
+                rows.append(Row("line", _plain(content[n - 1]), old_no=n + offset, new_no=n))
+            return
+        count = last - first + 1
+        rows.append(Row("gap", f"⋯ {plural(count, 'unchanged line')}", line=g))
+
     for hi, h in enumerate(diff.hunks):
-        rows.append(Row("hunk", h.header, hunk=hi))
+        gap(hi)
+        if not full:
+            rows.append(Row("hunk", h.header, hunk=hi))
         for li, ln in enumerate(h.lines):
             rows.append(
                 Row(
                     "line",
-                    ln.text.replace("\t", "    ").rstrip("\r"),
+                    _plain(ln.text),
                     hunk=hi,
                     line=li,
                     marker=ln.kind,
@@ -124,6 +168,8 @@ def build_rows(diff: FileDiff | None, message: str = "") -> list[Row]:
                     new_no=ln.new_no,
                 )
             )
+    if content is not None:  # how much follows the last hunk is only known with the text
+        gap(len(diff.hunks))
     return rows
 
 
@@ -141,6 +187,7 @@ class DiffView(CursorView):
         "diff-view--selected",
         "diff-view--hunk-active",
         "diff-view--nonewline",
+        "diff-view--gap",
     }
 
     DEFAULT_CSS = """
@@ -153,6 +200,7 @@ class DiffView(CursorView):
     DiffView > .diff-view--info { color: $text-muted; text-style: italic; }
     DiffView > .diff-view--gutter { color: $text-muted; }
     DiffView > .diff-view--nonewline { color: $text-muted; text-style: italic; }
+    DiffView > .diff-view--gap { color: $text-muted; background: $foreground 4%; }
     DiffView > .diff-view--cursor { background: $primary 30%; }
     DiffView:focus > .diff-view--cursor { background: $primary 55%; }
     DiffView > .diff-view--selected { background: $accent 35%; }
@@ -164,6 +212,7 @@ class DiffView(CursorView):
         Binding("n,f7", "next_hunk(1)", "Next change", show=False),
         Binding("p,shift+f7", "next_hunk(-1)", "Previous change", show=False),
         Binding("s", "toggle_split", "Side-by-side", show=False),
+        Binding("f", "toggle_full", "Whole file", show=False),
     ]
 
     class SelectionChanged(Message):
@@ -186,6 +235,9 @@ class DiffView(CursorView):
         self.line_marks: dict[tuple[str, int], str] = {}
         self._max_width = 0
         self._split_text = 0  # longest line on either side in side-by-side mode
+        self.full_file = False  # show the whole file, not just the changes
+        self._content: list[str] | None = None  # the new file's lines, for hidden stretches
+        self._expanded: set[int] = set()  # gaps opened with enter / click
 
     # -- content -------------------------------------------------------------
     def set_diff(
@@ -203,10 +255,19 @@ class DiffView(CursorView):
             and self.diff.path == diff.path
         )
         old_cursor = self.cursor
+        if not (
+            diff is not None
+            and self.diff is not None
+            and diff.path == self.diff.path
+            and source == self.source
+        ):
+            self._expanded = set()
+            self._content = None  # a different file: its text is loaded below
         self.source = source
         self.diff = diff
         self._message = message
         self._rebuild()
+        self._load_unchanged()
         if same_file:
             self.cursor = min(old_cursor, max(len(self.rows) - 1, 0))
         else:
@@ -215,9 +276,15 @@ class DiffView(CursorView):
         self.refresh()
         self.post_message(self.SelectionChanged(self))
 
-    def _rebuild(self) -> None:
+    def _rebuild(self, *, keep_cursor: bool = False) -> None:
+        current = self.rows[self.cursor] if keep_cursor and self.rows else None
+        opts = {
+            "content": self._content,
+            "expanded": frozenset(self._expanded),
+            "full": self.full_file,
+        }
         if self.split:
-            self.rows = build_split_rows(self.diff, self._message)
+            self.rows = build_split_rows(self.diff, self._message, **opts)
             self._max_width = max((len(r.text) for r in self.rows if r.kind != "line"), default=0)
             self._split_text = max(
                 (
@@ -230,10 +297,75 @@ class DiffView(CursorView):
                 default=0,
             )
         else:
-            self.rows = build_rows(self.diff, self._message)
+            self.rows = build_rows(self.diff, self._message, **opts)
             self._max_width = max((GUTTER + 1 + len(r.text) for r in self.rows), default=0)
         self.anchor = None
         self._update_virtual_size()
+        if current is not None:
+            self.cursor = self._find_row(current)
+        self.refresh()
+
+    def _find_row(self, target: Row) -> int:
+        """The row showing the same line as `target` after a rebuild (else the nearest)."""
+
+        def numbers(r: Row) -> tuple[int | None, int | None]:
+            new = r.new_no if r.new_no is not None else (r.pair.new_no if r.pair else None)
+            return r.old_no, new
+
+        t_old, t_new = numbers(target)
+        best = 0
+        for i, r in enumerate(self.rows):
+            if (
+                target.hunk >= 0
+                and r.hunk == target.hunk
+                and target.line >= 0
+                and (r.line == target.line or (r.pair is not None and r.pair.line == target.line))
+            ):
+                return i
+            old, new = numbers(r)
+            if (t_new is not None and new == t_new) or (t_old is not None and old == t_old):
+                return i
+            if t_new is not None and new is not None and new < t_new:
+                best = i
+        return best
+
+    # -- hidden unchanged lines -----------------------------------------------------------
+    @work(exclusive=True, group="diff-unchanged")
+    async def _load_unchanged(self) -> None:
+        session = getattr(self.app, "session", None)
+        diff, source = self.diff, self.source
+        if session is None or diff is None or source is None:
+            return
+        text = await P.unchanged_text(session.git, source, diff)
+        if self.diff is not diff:
+            return  # another file is showing by now
+        self._content = text
+        self._rebuild(keep_cursor=True)
+
+    def expand_gap(self, gap: int) -> None:
+        """Show the unchanged lines of `gap` in place of its `⋯` row."""
+        at = next((i for i, r in enumerate(self.rows) if r.kind == "gap" and r.line == gap), None)
+        self._expanded.add(gap)
+        self._rebuild()
+        if at is not None:
+            self.cursor = min(at, len(self.rows) - 1)
+
+    def action_toggle_full(self) -> None:
+        self.full_file = not self.full_file
+        self._rebuild(keep_cursor=True)
+        self.notify("Whole file" if self.full_file else "Changes only", timeout=2)
+
+    def on_key(self, event: events.Key) -> None:
+        # enter on a `⋯` row opens it; anywhere else enter keeps its usual meaning
+        if event.key == "enter" and self.rows and self.rows[self.cursor].kind == "gap":
+            event.stop()
+            event.prevent_default()
+            self.expand_gap(self.rows[self.cursor].line)
+
+    def on_click(self, event: events.Click) -> None:
+        row = event.y + self.scroll_offset.y
+        if 0 <= row < len(self.rows) and self.rows[row].kind == "gap":
+            self.expand_gap(self.rows[row].line)
 
     def _split_halves(self, width: int) -> tuple[int, int]:
         """Widths of the left and right side of a side-by-side row."""
@@ -254,19 +386,8 @@ class DiffView(CursorView):
         self._update_virtual_size()
 
     def action_toggle_split(self) -> None:
-        current = self.rows[self.cursor] if self.rows else None
         self.split = not self.split
-        self._rebuild()
-        target = 0
-        if current is not None:
-            for i, r in enumerate(self.rows):
-                if r.hunk == current.hunk and (
-                    r.line == current.line or (r.pair is not None and r.pair.line == current.line)
-                ):
-                    target = i
-                    break
-        self.cursor = target
-        self.refresh()
+        self._rebuild(keep_cursor=True)
 
     def _first_change(self) -> int:
         for i, r in enumerate(self.rows):
@@ -375,6 +496,8 @@ class DiffView(CursorView):
             text_style = style("diff-view--info")
         elif row.kind == "hunk":
             text_style = style("diff-view--hunk")
+        elif row.kind == "gap":
+            text_style = style("diff-view--gap")
         elif row.marker == "+":
             text_style = style("diff-view--added")
         elif row.marker == "-":
@@ -488,6 +611,9 @@ class DiffView(CursorView):
         config = getattr(self.app, "config", None)
         if config is not None and config.side_by_side and not self.split:
             self.split = True
+            self._rebuild()
+        if config is not None and getattr(config, "diff_full_file", False):
+            self.full_file = True
             self._rebuild()
 
     def on_focus(self) -> None:

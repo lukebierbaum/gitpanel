@@ -547,6 +547,54 @@ async def load_diff(
     return diffs
 
 
+async def unchanged_text(git: Git, source: DiffSource, diff: FileDiff) -> list[str] | None:
+    """The lines of the file version a diff's unchanged lines come from (its new side),
+    for showing the context a diff leaves out. None when there is none to show (added,
+    deleted or binary files) or it can't be read."""
+    if diff.binary or not diff.hunks or diff.new_path is None or diff.status in ("A", "D"):
+        return None
+    path = diff.new_path
+    match source:
+        case WorkingTree():
+            try:
+                data = (git.cwd / path).read_bytes()
+            except OSError:
+                return None
+        case Staged():
+            res = await git.run("show", f":{path}", read_only=True, check=False)
+            data = res.stdout if res.ok else b""
+        case CommitDiff(sha=sha):
+            res = await git.run("show", f"{sha}:{path}", read_only=True, check=False)
+            data = res.stdout if res.ok else b""
+        case RangeDiff(b=b):
+            res = await git.run("show", f"{b}:{path}", read_only=True, check=False)
+            data = res.stdout if res.ok else b""
+        case _:
+            return None
+    if not data:
+        return None
+    text = data.decode("utf-8", "surrogateescape")
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def gaps(diff: FileDiff, total: int | None) -> list[tuple[int, int, int]]:
+    """The unchanged stretches a diff leaves out: one per hunk (before it) plus one after
+    the last, as (first new line, last new line, old line - new line); empty stretches
+    included. `total` = lines in the new file (None: unknown, the last gap ends at 0)."""
+    out: list[tuple[int, int, int]] = []
+    new_end = old_end = 0
+    for h in diff.hunks:
+        first = h.new_start if h.new_len > 0 else h.new_start + 1
+        out.append((new_end + 1, first - 1, old_end - new_end))
+        new_end = h.new_start + h.new_len - 1 if h.new_len > 0 else h.new_start
+        old_end = h.old_start + h.old_len - 1 if h.old_len > 0 else h.old_start
+    out.append((new_end + 1, total if total is not None else new_end, old_end - new_end))
+    return out
+
+
 async def apply(
     git: Git,
     patch: bytes,

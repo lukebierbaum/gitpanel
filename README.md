@@ -22,7 +22,7 @@ gitpanel is a keyboard-first Git client for the terminal, modelled on the Git in
 ## Tour
 
 ### Commit window
-Stage whole files, single hunks or individual lines — unified or side-by-side — with changelists, amend and commit-and-push.
+Stage whole files, single hunks or individual lines — unified or side-by-side, changes only or the whole file — with changelists, amend and commit-and-push.
 
 ![Commit window](docs/screenshots/commit.svg)
 
@@ -108,6 +108,8 @@ Panes can be resized by dragging the thin dividers between them — including th
 | `space` | stage / unstage the file, group, hunk under the cursor, or selected lines |
 | `v`, `shift+↑↓` | select lines in the diff, then `space` |
 | `s` | toggle side-by-side diff (`←`/`→` scroll long lines) |
+| `enter` on `⋯ N unchanged lines` | show the lines a diff leaves out (or click it) |
+| `f` | whole file / changes only |
 | `n` / `p` | next / previous change |
 | `a` / `A` | stage all / unstage all |
 | `ctrl+k` | commit — `alt+m` amend, `alt+↑↓` message history |
@@ -171,6 +173,7 @@ theme = "hulk"                 # hulk, hulk-light, or any Textual theme
 
 [diff]
 side_by_side = true            # start diffs side-by-side
+full_file = false              # start diffs showing the whole file (f toggles)
 context = 3
 
 [log]

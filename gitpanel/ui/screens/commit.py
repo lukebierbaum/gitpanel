@@ -201,7 +201,7 @@ class CommitView(ToolWindow):
     def hint_extras(self) -> list[tuple[str, str]]:
         focused = self.screen.focused
         if isinstance(focused, DiffView):
-            return [("v", "select lines"), ("n/p", "next/prev change")]
+            return [("v", "select lines"), ("n/p", "next/prev change"), ("f", "whole file")]
         if isinstance(focused, FileTree):
             return [("tab", "diff")]
         return []
