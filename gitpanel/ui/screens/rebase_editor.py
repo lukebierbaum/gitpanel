@@ -8,7 +8,7 @@ from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable
 
 from ...actions.context import SelectionContext
 from ...git import scripted_rebase as SR
@@ -16,6 +16,7 @@ from ...git.log import commit_details
 from ..base import ToolScreen
 from ..colors import C
 from ..widgets.key_hints import KeyHints
+from ..widgets.title_bar import TitleBar
 
 ACTION_STYLE = {  # colour names
     "pick": "green",
@@ -30,7 +31,6 @@ ACTION_STYLE = {  # colour names
 class RebaseEditorScreen(ToolScreen):
     DEFAULT_CSS = """
     RebaseEditorScreen { layout: vertical; }
-    RebaseEditorScreen #rb-header { height: auto; padding: 0 1; background: $panel; }
     RebaseEditorScreen DataTable { height: 1fr; background: $surface; }
     """
     BINDINGS = [
@@ -53,7 +53,7 @@ class RebaseEditorScreen(ToolScreen):
         self.messages: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="rb-header")
+        yield TitleBar(id="rb-header")
         yield DataTable(id="rb-table", cursor_type="row")
         yield KeyHints(id="rb-hints")
 
@@ -81,19 +81,22 @@ class RebaseEditorScreen(ToolScreen):
         if self.todo:
             table.move_cursor(row=max(0, min(row, len(self.todo) - 1)))
         branch = self.gp.session.active.branch_short if self.gp.session else "HEAD"
-        header = Text()
-        header.append(f"Rebasing {len(self.todo)} commit(s) of {branch}", style="bold")
-        header.append(f" onto {self.base[:8] if self.base else 'root'}", style="dim")
-        header.append(
-            "   oldest first · p pick · r reword · e edit · s squash · f fixup · d drop"
-            " · alt+↑↓ move · ctrl+s start · esc cancel",
-            style="dim",
-        )
+        problem = None
         try:
             SR.validate(self.todo)
         except SR.RebaseError as e:
-            header.append(f"\n⚠ {e}", style=C.red)
-        self.query_one("#rb-header", Static).update(header)
+            problem = Text(f"⚠ {e}", style=C.fail)
+        self.query_one("#rb-header", TitleBar).set(
+            f"Rebasing {len(self.todo)} commit(s) of {branch}",
+            f"onto {self.base[:8] if self.base else 'root'} · oldest first",
+            keys=[
+                ("p r e s f d", "pick reword edit squash fixup drop"),
+                ("alt+↑↓", "move"),
+                ("ctrl+s", "start"),
+                ("esc", "cancel"),
+            ],
+            below=problem,
+        )
         self.gp.refresh_hints()
 
     def _row(self) -> int:

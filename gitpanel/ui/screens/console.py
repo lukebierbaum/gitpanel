@@ -5,12 +5,13 @@ from __future__ import annotations
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.widgets import RichLog, Static
+from textual.widgets import RichLog
 
 from ...actions.context import SelectionContext
 from ...git.console import CONSOLE, ConsoleEntry
 from ..base import ToolWindow
 from ..colors import C
+from ..widgets.title_bar import TitleBar
 
 MAX_LINES_SHOWN = 40  # per stream, per entry
 
@@ -21,7 +22,6 @@ class ConsoleView(ToolWindow):
 
     DEFAULT_CSS = """
     ConsoleView { height: 1fr; }
-    ConsoleView #console-header { height: 1; padding: 0 1; background: $panel; }
     ConsoleView RichLog { height: 1fr; background: $surface; padding: 0 1; }
     """
     BINDINGS = [
@@ -38,7 +38,7 @@ class ConsoleView(ToolWindow):
         self._placeholder = False
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="console-header")
+        yield TitleBar(id="console-header")
         yield RichLog(
             id="console-log",
             wrap=True,
@@ -95,20 +95,19 @@ class ConsoleView(ToolWindow):
 
     def _update_header(self) -> None:
         running = [e for e in CONSOLE.entries if e.running]
-        t = Text()
-        t.append("Console", style=f"bold {C.green}")
-        t.append(f"   {len(CONSOLE.entries)} commands recorded", style="dim")
-        if running:
-            t.append(f"   running: {running[-1].command[:60]}", style=C.amber)
-        t.append("   a ", style="bold")
-        t.append("changes only" if self.show_queries else "all commands", style="dim")
-        t.append("  o ", style="bold")
-        t.append("hide output" if self.show_output else "show output", style="dim")
-        t.append("  c ", style="bold")
-        t.append("clear", style="dim")
         headers = self.query("#console-header")
-        if headers:
-            headers.first(Static).update(t)
+        if not headers:
+            return
+        headers.first(TitleBar).set(
+            "Console",
+            f"{len(CONSOLE.entries)} commands recorded",
+            Text(f"running: {running[-1].command[:60]}", style=C.pending) if running else "",
+            keys=[
+                ("a", "changes only" if self.show_queries else "all commands"),
+                ("o", "hide output" if self.show_output else "show output"),
+                ("c", "clear"),
+            ],
+        )
 
     def _format_entry(self, e: ConsoleEntry) -> Text:
         t = Text()

@@ -16,13 +16,13 @@ from textual.geometry import Size
 from textual.reactive import reactive
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
-from textual.widgets import Static
 
 from ...actions.context import SelectionContext
 from ...git.history import BlameLine, blame
 from ..base import ToolScreen
 from ..colors import C
 from ..widgets.key_hints import KeyHints
+from ..widgets.title_bar import TitleBar
 
 # age colours: newest green → oldest purple
 AGE_STEPS = 7
@@ -165,7 +165,6 @@ class BlameView(ScrollView, can_focus=True):
 class AnnotateScreen(ToolScreen):
     DEFAULT_CSS = """
     AnnotateScreen { layout: vertical; }
-    AnnotateScreen #ann-header { height: 2; padding: 0 1; background: $panel; }
     AnnotateScreen BlameView { height: 1fr; }
     """
     HINT_EXTRAS = [("v", "select lines"), ("esc", "close")]
@@ -175,7 +174,7 @@ class AnnotateScreen(ToolScreen):
         self.path, self.rev, self.line = path, rev, line
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="ann-header")
+        yield TitleBar(id="ann-header")
         yield BlameView(id="blame")
         yield KeyHints(id="ann-hints")
 
@@ -197,18 +196,19 @@ class AnnotateScreen(ToolScreen):
 
     def update_header(self) -> None:
         view = self.query_one(BlameView)
-        t = Text()
-        t.append(f"Annotate {self.path}", style="bold")
-        t.append(f" @ {self.rev[:12]}" if self.rev else " (working tree)", style="dim")
+        line = Text()
         if view.lines:
             ln = view.lines[view.cursor]
-            t.append("\n")
             if ln.uncommitted:
-                t.append("Not committed yet", style=C.amber)
+                line.append("Not committed yet", style=C.warn)
             else:
-                t.append(f"{ln.sha[:10]} ", style=f"bold {C.green}")
-                t.append(f"{ln.author} · {ln.summary}", style="dim")
-        self.query_one("#ann-header", Static).update(t)
+                line.append(f"{ln.sha[:10]} ", style=f"bold {C.sha}")
+                line.append(f"{ln.author} · {ln.summary}", style="dim")
+        self.query_one("#ann-header", TitleBar).set(
+            f"Annotate {self.path}",
+            f"@ {self.rev[:12]}" if self.rev else "(working tree)",
+            below=line,
+        )
 
     def refresh_hints(self) -> None:
         if self.is_mounted:

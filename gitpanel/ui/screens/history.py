@@ -7,7 +7,6 @@ from typing import Any
 from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
-from textual.widgets import Static
 
 from ...actions.context import FileRef, Scope, SelectionContext
 from ...actions.registry import Registry
@@ -19,12 +18,12 @@ from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.key_hints import KeyHints
 from ..widgets.splitter import Splitter
+from ..widgets.title_bar import TitleBar
 
 
 class HistoryScreen(ToolScreen):
     DEFAULT_CSS = """
     HistoryScreen { layout: vertical; }
-    HistoryScreen #hist-header { height: 1; padding: 0 1; background: $panel; }
     HistoryScreen CommitTable { height: 40%; }
     HistoryScreen DiffView { height: 1fr; }
     """
@@ -37,7 +36,7 @@ class HistoryScreen(ToolScreen):
         self.paths: dict[str, str] = {}  # sha → path at that revision
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="hist-header")
+        yield TitleBar(id="hist-header")
         yield CommitTable(id="hist-table")
         yield Splitter("history.table", "y", minimum=4)
         yield DiffView(id="hist-diff")
@@ -50,21 +49,20 @@ class HistoryScreen(ToolScreen):
     @work(exclusive=True, group="history-load")
     async def load(self) -> None:
         git = self.git
-        title = Text()
         if self.start is not None and self.end is not None:
             commits = await selection_history(git, self.path, self.start, self.end)
             self.paths = {c.sha: self.path for c in commits}
-            title.append(f"History of {self.path}:{self.start}-{self.end}", style="bold")
+            title = f"History of {self.path}:{self.start}-{self.end}"
         else:
             revs = await file_history(git, self.path)
             commits = [r.commit for r in revs]
             self.paths = {r.commit.sha: r.path for r in revs}
-            title.append(f"History of {self.path}", style="bold")
-        title.append(
-            f"   {len(commits)} revision(s) · alt+a annotate · G get · C cherry-pick · esc close",
-            style="dim",
+            title = f"History of {self.path}"
+        self.query_one("#hist-header", TitleBar).set(
+            title,
+            f"{len(commits)} revision(s)",
+            keys=[("alt+a", "annotate"), ("G", "get"), ("C", "cherry-pick"), ("esc", "close")],
         )
-        self.query_one("#hist-header", Static).update(title)
         rows = [LogRow(c, GraphRow(c.sha, 0, (("●", 0),))) for c in commits]
         self.query_one(CommitTable).set_rows(rows, has_more=False)
         self.show_diff()

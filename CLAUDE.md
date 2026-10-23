@@ -42,6 +42,7 @@ Add dependencies with `pixi add <pkg>` (conda-forge) or `pixi add --pypi <pkg>` 
 - New tool windows subclass `ui/base.py` `ToolWindow`; full screens opened on top subclass `ToolScreen` (escape closes, `HINT_EXTRAS` for the hint bar). Both give `self.gp` / `self.git`; build contexts with `base.with_(...)`.
 - Colours come from `ui/colors.py` (`C.added`, `C.unpushed`, `C[name]` …), looked up at render time so they follow the theme — no hex literals elsewhere. The git layer names a meaning (`node_color="unpushed"`), never a colour.
 - Table-like lists use `ui/widgets/list_table.py` `ListTable` (describe `Col`s, call `set_items`, read `selected`) — never a bare `DataTable` — so every list gets `/` filter, `>`/`<` and header-click sort, remembered order and a flexible column. Screens add `listing.hints()` to their hint extras.
+- Window/screen header bars are `ui/widgets/title_bar.py` `TitleBar.set(title, *info, keys=[...], below=...)`.
 - A change's files beside a diff use `ui/widgets/file_list.py` `FileList` (`set_files(source, diffs)`, handle `FileList.Selected`).
 - Widget bindings that only sometimes apply (e.g. `escape` clearing a selection) raise `textual.actions.SkipAction` when there's nothing to do, so the key reaches the screen.
 - Key defaults follow PyCharm where the terminal allows (e.g. `ctrl+k` commit); document deviations next to the action.

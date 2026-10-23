@@ -16,13 +16,13 @@ from textual.message import Message
 from textual.reactive import reactive
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
-from textual.widgets import Static
 
 from ...actions.context import Scope, SelectionContext
 from ...git import conflicts as CF
 from ..base import ToolScreen
 from ..colors import C
 from ..widgets.key_hints import KeyHints
+from ..widgets.title_bar import TitleBar
 
 
 @dataclass(frozen=True)
@@ -163,7 +163,6 @@ class ThreeWayView(ScrollView, can_focus=True):
 class ResolverScreen(ToolScreen):
     DEFAULT_CSS = """
     ResolverScreen { layout: vertical; }
-    ResolverScreen #res-header { height: 2; padding: 0 1; background: $panel; }
     ResolverScreen ThreeWayView { height: 1fr; }
     """
     BINDINGS = [Binding("escape", "close", "Close")]
@@ -176,7 +175,7 @@ class ResolverScreen(ToolScreen):
         self.labels: CF.Labels | None = None
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="res-header")
+        yield TitleBar(id="res-header")
         yield ThreeWayView(id="three")
         yield KeyHints(id="res-hints")
 
@@ -204,21 +203,21 @@ class ResolverScreen(ToolScreen):
     def update_header(self) -> None:
         if self.model is None or self.labels is None:
             return
-        t = Text(no_wrap=True, overflow="ellipsis")
-        t.append(f"{self.path}", style="bold")
         n = len(self.model.chunks)
         un = self.model.unresolved
-        t.append(f"   {n - un}/{n} resolved", style=C.green if un == 0 else C.amber)
-        if self.model.chunks:
-            t.append(f"   chunk {self.query_one(ThreeWayView).current + 1}", style="dim")
-        t.append("\n")
         w = max((self.size.width - 4) // 3, 8)  # header has 1 cell of padding each side
-        t.append(self.labels.ours[:w].ljust(w), style=f"bold {C.green}")
-        t.append(" ")
-        t.append("Result"[:w].center(w), style="bold")
-        t.append(" ")
-        t.append(self.labels.theirs[:w].rjust(w), style=f"bold {C.purple}")
-        self.query_one("#res-header", Static).update(t)
+        columns = Text()
+        columns.append(self.labels.ours[:w].ljust(w), style=f"bold {C.current}")
+        columns.append(" ")
+        columns.append("Result"[:w].center(w), style="bold")
+        columns.append(" ")
+        columns.append(self.labels.theirs[:w].rjust(w), style=f"bold {C.other}")
+        self.query_one("#res-header", TitleBar).set(
+            self.path,
+            Text(f"{n - un}/{n} resolved", style=C.ok if un == 0 else C.pending),
+            f"chunk {self.query_one(ThreeWayView).current + 1}" if self.model.chunks else "",
+            below=columns,
+        )
 
     def on_three_way_view_chunk_changed(self) -> None:
         self.update_header()

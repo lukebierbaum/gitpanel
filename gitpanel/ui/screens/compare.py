@@ -22,6 +22,7 @@ from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter
+from ..widgets.title_bar import TitleBar
 
 PICKED = Marker("picked", "✓ picked", "picked", dims_row=True, order=90)
 
@@ -32,7 +33,6 @@ class CompareView(ToolWindow):
 
     DEFAULT_CSS = """
     CompareView { height: 1fr; }
-    CompareView #cmp-header { height: 1; padding: 0 1; background: $panel; }
     CompareView #cmp-lists { height: 50%; }
     CompareView #cmp-lists > Vertical { width: 1fr; }
     CompareView #cmp-lists Label { padding: 0 1; color: $accent; text-style: bold; }
@@ -57,7 +57,7 @@ class CompareView(ToolWindow):
         self.picked: set[str] = set()
 
     def compose(self) -> ComposeResult:
-        yield Static(
+        yield TitleBar(
             "Open from the Branches popup (b → ctrl+e) to compare a branch with HEAD",
             id="cmp-header",
         )
@@ -107,17 +107,16 @@ class CompareView(ToolWindow):
         b_name = current if self.b == "HEAD" else self.b
         self.picked = {c.sha for c, p in result.only_a + result.only_b if p}
         n_picked = sum(1 for _, p in result.only_b if p)
-        header = Text()
-        header.append(f"{a_name}", style=f"bold {C.green}")
-        header.append("  ↔  ")
-        header.append(f"{b_name}", style=f"bold {C.purple}")
-        header.append(
-            f"   {len(result.only_b)} only in {b_name} ({n_picked} already picked) · "
+        title = Text()
+        title.append(f"{a_name}", style=f"bold {C.current}")
+        title.append("  ↔  ")
+        title.append(f"{b_name}", style=f"bold {C.other}")
+        self.query_one("#cmp-header", TitleBar).set(
+            title,
+            f"{len(result.only_b)} only in {b_name} ({n_picked} already picked) · "
             f"{len(result.only_a)} only in {a_name}",
-            style="dim",
+            keys=[("x", "swap"), ("h", "hide picked"), ("C", "pick"), ("ctrl+alt+c", "pick to…")],
         )
-        header.append("   x swap · h hide picked · C pick · ctrl+alt+c pick to…", style="dim")
-        self.query_one("#cmp-header", Static).update(header)
         self.query_one("#cmp-b-label", Label).update(f"In {b_name}, not in {a_name}")
         self.query_one("#cmp-a-label", Label).update(f"In {a_name}, not in {b_name}")
         for table_id, rows in (("#cmp-b", result.only_b), ("#cmp-a", result.only_a)):

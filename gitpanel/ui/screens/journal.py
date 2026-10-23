@@ -7,7 +7,7 @@ from typing import Any
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable
 
 from ...actions.context import SelectionContext
 from ...git.journal import JournalEntry
@@ -15,6 +15,7 @@ from ..base import ToolScreen
 from ..colors import C
 from ..widgets.key_hints import KeyHints
 from ..widgets.list_table import Col, ListTable
+from ..widgets.title_bar import TitleBar
 
 
 def describe_refs(e: JournalEntry) -> Text:
@@ -56,14 +57,13 @@ def _state(e: JournalEntry) -> Text:
 class JournalScreen(ToolScreen):
     DEFAULT_CSS = """
     JournalScreen { layout: vertical; }
-    JournalScreen #jr-header { height: 1; padding: 0 1; background: $panel; }
     """
 
     def __init__(self) -> None:
         super().__init__()
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="jr-header")
+        yield TitleBar(id="jr-header")
         yield ListTable[JournalEntry](
             [
                 Col("id", "#", 5, lambda e: str(e.id), sort=lambda e: e.id, descending_first=True),
@@ -108,15 +108,12 @@ class JournalScreen(ToolScreen):
             return
         entries = list(reversed(session.journal.entries()))
         self.query_one(ListTable).set_items(entries)
-        header = Text()
-        header.append("Operation history", style="bold")
-        header.append(
-            f"   {sum(not e.undone for e in entries)} undoable · "
-            f"{sum(e.undone for e in entries)} redoable · enter: undo/redo down "
-            "to the selected entry · esc close",
-            style="dim",
+        self.query_one("#jr-header", TitleBar).set(
+            "Operation history",
+            f"{sum(not e.undone for e in entries)} undoable · "
+            f"{sum(e.undone for e in entries)} redoable",
+            keys=[("enter", "undo/redo down to the selected entry"), ("esc", "close")],
         )
-        self.query_one("#jr-header", Static).update(header)
 
     @on(ListTable.Highlighted)
     def _row(self) -> None:

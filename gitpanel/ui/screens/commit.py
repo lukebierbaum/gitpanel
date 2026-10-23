@@ -18,6 +18,7 @@ from ..base import ToolWindow
 from ..widgets.diff_view import DiffView
 from ..widgets.file_tree import FileTree
 from ..widgets.splitter import Splitter
+from ..widgets.title_bar import TitleBar
 
 
 class CommitView(ToolWindow):
@@ -35,7 +36,6 @@ class CommitView(ToolWindow):
     CommitView #commit-options .spacer { width: 1fr; }
     CommitView #commit-author { width: 1fr; margin-top: 1; }
     CommitView #commit-button { margin-left: 1; }
-    CommitView #diff-title { height: 1; padding: 0 1; background: $panel; color: $text-muted; }
     CommitView DiffView { height: 1fr; }
     """
 
@@ -71,7 +71,7 @@ class CommitView(ToolWindow):
                         yield Button("Commit", id="commit-button", variant="primary", compact=True)
             yield Splitter("commit.changes", "x", minimum=24)
             with Vertical(id="commit-right"):
-                yield Label("", id="diff-title")
+                yield TitleBar(id="diff-title")
                 yield DiffView(id="diff")
 
     stale = False
@@ -121,12 +121,12 @@ class CommitView(ToolWindow):
     async def _show_focused_diff(self, *, keep_position: bool = False) -> None:
         tree = self.query_one(FileTree)
         view = self.query_one(DiffView)
-        title = self.query_one("#diff-title", Label)
+        title = self.query_one("#diff-title", TitleBar)
         ref = tree.focused_file()
         if ref is None:
             refs = tree.focused_refs()
             if refs:
-                title.update(f"{len(refs)} file{'s' if len(refs) != 1 else ''}")
+                title.set(f"{len(refs)} file{'s' if len(refs) != 1 else ''}")
                 view.set_diff(None, None, message="Select a file to see its changes")
             else:
                 title.update("")
@@ -139,7 +139,7 @@ class CommitView(ToolWindow):
             "untracked": "Unversioned",
             "conflict": "Conflict",
         }[ref.group]
-        title.update(f"{ref.path}  ·  {group_title}")
+        title.set(ref.path, group_title)
         if ref.group == "conflict":
             code = ref.status.conflict if ref.status and ref.status.conflict else "UU"
             from ...git.conflicts import Conflict

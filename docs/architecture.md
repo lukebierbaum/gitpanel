@@ -66,6 +66,7 @@ gitpanel/
     widgets/                  # DiffView (unified + side-by-side), CommitTable, FileTree, OperationBanner, KeyHints,
                               # ListTable (every table-like list: filter bar, column sort, flexible column)
                               # FileList (a change's files beside a DiffView: labels, selection)
+                              # TitleBar (header line: title · info · key reminders)
     screens/                  # commit, log, branches, worktrees, conflicts, history, annotate, shelf, rebase_editor, push, compare
     dialogs.py
 tests/
