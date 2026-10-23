@@ -125,3 +125,14 @@ async def test_error_explanations(gh, monkeypatch):
     monkeypatch.setenv("PATH", "/nonexistent")
     with pytest.raises(ForgeError, match="isn't installed"):
         await provider.list_prs()
+
+
+async def test_concurrent_fetches_of_a_pr_share_one_git_fetch(gh):
+    import asyncio
+
+    gh_repo, session, provider = gh
+    pr = await provider.pr(1)
+    before = sum(e.command.startswith("git fetch") for e in CONSOLE.entries)
+    a, b = await asyncio.gather(provider.fetch_head(pr), provider.fetch_head(pr))
+    assert a == b == pr.head_sha
+    assert sum(e.command.startswith("git fetch") for e in CONSOLE.entries) == before + 1

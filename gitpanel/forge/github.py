@@ -100,6 +100,7 @@ class GitHub:
         self.session = session
         self._repo: RepoInfo | None = None
         self._base_fetched: dict[str, float] = {}  # base branch → monotonic time of last fetch
+        self._fetching: dict[tuple[int, str], asyncio.Task[str]] = {}  # (PR, head sha) in flight
 
     @property
     def gh(self) -> Gh:
@@ -216,8 +217,19 @@ class GitHub:
         """Fetch the PR head (and its base) so commits and diffs come from local git.
 
         One `git fetch` for both, skipped when the head is already here and the base was
-        fetched in the last few minutes.
+        fetched in the last few minutes. Callers asking for the same head while a fetch is
+        running share it (a prefetch and the tab that needs it), and cancelling one caller
+        doesn't abort the fetch for the others.
         """
+        key = (pr.number, pr.head_sha)
+        task = self._fetching.get(key)
+        if task is None or task.done() and (task.cancelled() or task.exception()):
+            task = asyncio.ensure_future(self._fetch_head(pr))
+            self._fetching[key] = task
+            task.add_done_callback(lambda _: self._fetching.pop(key, None))
+        return await asyncio.shield(task)
+
+    async def _fetch_head(self, pr: PullRequest) -> str:
         remote = await self.remote_name()
         ref = f"refs/gitpanel/pr/{pr.number}"
         git = self.session.git

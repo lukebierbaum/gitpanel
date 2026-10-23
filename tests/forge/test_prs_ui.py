@@ -89,3 +89,25 @@ async def test_pr_files_diff_fits_the_screen(gh_repo):
         await settle(pilot, app)
         diff = app.view.query_one("#pr-diff", DiffView)
         assert diff.region.right <= 150
+
+
+async def test_pr_list_filters_as_you_type(gh_repo):
+    app = GitPanelApp(gh_repo.repo.path, config=Config(pr_default_query="open"))
+    async with app.run_test(size=(150, 40)) as pilot:
+        await settle(pilot, app)
+        await pilot.press("7")
+        await settle(pilot, app)
+        view = app.view
+        table = view.query_one("#pr-list", DataTable)
+        assert table.row_count == 2
+        await pilot.press("slash")
+        assert app.focused is view.query_one("#pr-search")
+        await pilot.press(*"fuzz")
+        await settle(pilot, app)
+        assert table.row_count == 1 and view.detail is not None and view.detail.number == 1
+        await pilot.press("ctrl+u", *"status:failure")  # CI state from the status query
+        await settle(pilot, app)
+        assert [str(table.get_row_at(i)[0]) for i in range(table.row_count)] == ["#1"]
+        await pilot.press("escape")
+        await settle(pilot, app)
+        assert table.row_count == 2 and app.focused is table

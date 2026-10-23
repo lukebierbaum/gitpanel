@@ -138,6 +138,7 @@ Needs the [GitHub CLI](https://cli.github.com) (`gh auth login`). Lists *Mine ·
 
 | Key | |
 |---|---|
+| `/` | filter the list as you type — words, `author:` `label:` `base:` `head:` `status:failure` `review:approved` `draft:false`, `-` to exclude; `enter` runs it as a GitHub search, `escape` clears |
 | `enter` | check out the PR (Smart / Force Checkout if local changes are in the way) |
 | `w` | check it out in a **new worktree** |
 | `n` | create a PR from the current branch — pushes it if needed, drafts title and description from its commits (also *Create Pull Request…* on any branch in the Branches popup) |

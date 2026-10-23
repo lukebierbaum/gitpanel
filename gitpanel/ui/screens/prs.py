@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import time
-from collections import defaultdict
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
-from textual import on, work
+from textual import events, on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.timer import Timer
@@ -26,13 +26,14 @@ from textual.widgets import (
 from textual.widgets.option_list import Option
 
 from ...actions.context import Scope, SelectionContext
+from ...forge.filters import pr_matches
 from ...forge.github import QUERIES, GitHub, detect
 from ...forge.models import CIState, PullRequest, ReviewThread
 from ...forge.runner import ForgeError
 from ...git import patch as P
 from ...git.graph import GraphRow
 from ...git.log import LogFilter, load_page
-from ...git.markers import collect, default_providers
+from ...git.markers import PickedMarkers, RefMarkers, collect
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.splitter import Splitter
@@ -117,6 +118,9 @@ class PRsView(Vertical):
         self._statuses: dict[int, tuple[CIState, str]] = {}
         self._details: dict[int, tuple[PullRequest, float]] = {}
         self._pending: Timer | None = None
+        self._query = "mine"
+        self._searched = ""  # text last sent to GitHub as a search (enter in the filter box)
+        self._updated = ""
 
     @property
     def gp(self) -> GitPanelApp:
@@ -131,7 +135,8 @@ class PRsView(Vertical):
                 id="pr-query",
             )
             yield Input(
-                placeholder="Search (title words, label:bug, author:someone …)",
+                placeholder="/ Filter: words, author:, label:, status:failure, review:approved, "
+                "draft:false — enter searches GitHub",
                 id="pr-search",
                 compact=True,
             )
@@ -218,7 +223,7 @@ class PRsView(Vertical):
             self._status("")
             return
         query = str(self.query_one("#pr-query", Select).value)
-        search = self.query_one("#pr-search", Input).value
+        search = self._searched
         key = (query, search)
         keep = self._select_after or (self.detail.number if self.detail else None)
         self._select_after = None
@@ -233,18 +238,32 @@ class PRsView(Vertical):
             self._status("")
             return
         self._lists[key] = prs
+        self._updated = f"updated {datetime.now():%H:%M}"
         self._fill_list(prs, query, keep, force=True)
-        self._status(f"{len(prs)} · updated {datetime.now():%H:%M}")
         self.load_statuses([p.number for p in prs])
 
     def _fill_list(
         self, prs: list[PullRequest], query: str, keep: int | None, *, force: bool = False
     ) -> None:
         self.prs = prs
+        self._query = query
+        self._render_rows(keep, force=force)
+
+    def _filter_text(self) -> str:
+        """The filter to apply locally; text GitHub already searched for is left to GitHub
+        (it also matches PR descriptions, which the list doesn't have)."""
+        text = self.query_one("#pr-search", Input).value.strip()
+        return "" if text == self._searched.strip() else text
+
+    def _render_rows(self, keep: int | None = None, *, force: bool = False) -> None:
+        text = self._filter_text()
+        shown = [
+            pr for pr in self.prs if not text or pr_matches(pr, text, **self._known(pr.number))
+        ]
         table = self.query_one("#pr-list", DataTable)
         current = self.detail.number if self.detail else keep
         table.clear()
-        for pr in prs:
+        for pr in shown:
             ci, review = self._statuses.get(pr.number, (None, None))
             title = Text(pr.title, style="dim" if pr.draft else "")
             if pr.draft:
@@ -260,15 +279,26 @@ class PRsView(Vertical):
                 ago(pr.updated),
                 key=str(pr.number),
             )
-        label = QUERIES.get(query, ("", ""))[0]
-        self._empty(None if prs else f"No pull requests in “{label}”.")
-        if prs:
-            row = next((i for i, p in enumerate(prs) if p.number == (keep or current)), 0)
+        label = QUERIES.get(self._query, ("", ""))[0]
+        if shown:
+            self._empty(None)
+        elif self.prs:
+            self._empty(f"No pull requests in “{label}” match “{text}”.")
+        else:
+            self._empty(f"No pull requests in “{label}”.")
+        count = f"{len(shown)} of {len(self.prs)}" if text else str(len(self.prs))
+        self._status(" · ".join(x for x in (count, self._updated) if x))
+        if shown:
+            row = next((i for i, p in enumerate(shown) if p.number == (keep or current)), 0)
             table.move_cursor(row=row)
-            self._select(prs[row].number, force=force)
+            self._select(shown[row].number, force=force)
         else:
             self.detail = None
             self._clear_detail()
+
+    def _known(self, number: int) -> dict[str, Any]:
+        ci, review = self._statuses.get(number, (None, None))
+        return {"ci": ci, "review": review}
 
     @staticmethod
     def _ci_cell(ci: CIState | None) -> Text:
@@ -292,6 +322,9 @@ class PRsView(Vertical):
         except ForgeError:
             return
         self._statuses.update(found)
+        if any(q in self._filter_text() for q in ("status:", "review:")):
+            self._render_rows()  # the filter depends on what just arrived
+            return
         table = self.query_one("#pr-list", DataTable)
         columns = list(table.columns)
         for n, (ci, review) in found.items():
@@ -305,8 +338,30 @@ class PRsView(Vertical):
 
     @on(Input.Submitted, "#pr-search")
     def _search(self) -> None:
+        self._searched = self.query_one("#pr-search", Input).value.strip()
         self.reload()
         self.query_one("#pr-list", DataTable).focus()
+
+    @on(Input.Changed, "#pr-search")
+    def _filter(self) -> None:
+        self._render_rows()
+
+    def on_key(self, event: events.Key) -> None:
+        focused = self.screen.focused
+        search = self.query_one("#pr-search", Input)
+        if event.key == "slash" and focused is self.query_one("#pr-list", DataTable):
+            event.stop()
+            event.prevent_default()
+            search.focus()
+        elif event.key == "escape" and focused is search:
+            event.stop()
+            event.prevent_default()
+            if search.value:
+                search.value = ""
+                if self._searched:  # back to the unsearched list
+                    self._searched = ""
+                    self.reload()
+            self.query_one("#pr-list", DataTable).focus()
 
     @on(DataTable.RowHighlighted, "#pr-list")
     def _row(self, event: DataTable.RowHighlighted) -> None:
@@ -346,6 +401,9 @@ class PRsView(Vertical):
             return
         if not force and self.detail is not None and self.detail.number == number:
             return
+        summary = self.detail if self.detail is not None and self.detail.number == number else None
+        if summary is not None:
+            self.prefetch(summary)  # the commits download while GitHub sends the details
         try:
             pr = await self.provider.pr(number)
         except ForgeError as e:
@@ -443,6 +501,14 @@ class PRsView(Vertical):
         self._loaded_tabs.add(tab)
         self.load_tab(tab, pr)
 
+    @work(exclusive=True, group="prs-prefetch")
+    async def prefetch(self, pr: PullRequest) -> None:
+        """Fetch a PR's commits ahead of time so Commits/Files open without waiting."""
+        if self.provider is None or not pr.head_sha:
+            return
+        with contextlib.suppress(Exception):  # best effort; the tab reports real problems
+            await self.provider.fetch_head(pr)
+
     @work(exclusive=True, group="prs-tab")
     async def load_tab(self, tab: str, pr: PullRequest) -> None:
         assert self.provider is not None
@@ -474,31 +540,46 @@ class PRsView(Vertical):
         if tab == "tab-commits":
             commits = await load_page(session.git, LogFilter(refs=(f"{base}..{head}",)), 0, 500)
             rows = [LogRow(c, GraphRow(c.sha, 0, (("●", 0),))) for c in commits]
-            markers = await collect(default_providers(), session, [c.sha for c in commits])
-            for r in rows:
-                r.markers = markers.get(r.commit.sha, [])
-            self.query_one("#pr-commits", CommitTable).set_rows(rows, has_more=False)
+            table = self.query_one("#pr-commits", CommitTable)
+            table.set_rows(rows, has_more=False)
+            # branch labels and already-picked marks; pushed/unpushed colours are moot here
+            # (a PR's commits are on GitHub) and cost seconds on big repos
+            table.update_markers(
+                await collect([RefMarkers(), PickedMarkers()], session, [c.sha for c in commits])
+            )
         else:
             self.diffs = await P.load_diff(session.git, P.RangeDiff(base, head))
+            self.threads = []
             files = self.query_one("#pr-files", OptionList)
             files.clear_options()
-            self.threads = await threads_task
-            per_file = defaultdict(int)
-            for t in self.threads:
-                if not t.resolved:
-                    per_file[t.path] += 1
             for d in self.diffs:
-                label = Text(
-                    f"{d.status} ",
-                    style=GREEN if d.status == "A" else RED if d.status == "D" else "#B58CE8",
-                )
-                label.append(d.path)
-                if per_file.get(d.path):
-                    label.append(f"  💬{per_file[d.path]}", style=AMBER)
-                files.add_option(Option(label, id=d.path))
+                files.add_option(Option(self._file_label(d), id=d.path))
             if self.diffs:
                 files.highlighted = 0
                 self._show_file(self.diffs[0].path)
+            # review threads arrive separately; badge the files and mark lines when they do
+            self.threads = await threads_task
+            if self.detail is None or self.detail.number != pr.number:
+                return
+            for d in self.diffs:
+                if any(t.path == d.path and not t.resolved for t in self.threads):
+                    files.replace_option_prompt(d.path, self._file_label(d))
+            path = self._current_file()
+            if path and self.threads:
+                keep = self.query_one("#pr-diff", DiffView).cursor
+                self._show_file(path)
+                self.query_one("#pr-diff", DiffView).cursor = keep
+
+    def _file_label(self, d: P.FileDiff) -> Text:
+        label = Text(
+            f"{d.status} ",
+            style=GREEN if d.status == "A" else RED if d.status == "D" else "#B58CE8",
+        )
+        label.append(d.path)
+        open_threads = sum(t.path == d.path and not t.resolved for t in self.threads)
+        if open_threads:
+            label.append(f"  💬{open_threads}", style=AMBER)
+        return label
 
     # -- files & threads ----------------------------------------------------------------------
     def _show_file(self, path: str) -> None:
@@ -610,4 +691,6 @@ class PRsView(Vertical):
         return SelectionContext(**{**base.__dict__, **kwargs})
 
     def hint_extras(self) -> list[tuple[str, str]]:
+        if self.screen.focused is self.query_one("#pr-list", DataTable):
+            return [("/", "filter"), ("tab", "next pane")]
         return [("tab", "next pane")]
