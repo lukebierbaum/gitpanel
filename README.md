@@ -89,7 +89,7 @@ gp() {
 |---|---|
 | `1` – `7` | tool windows: **Commit · Log · Worktrees · Compare · Shelf · Console · Pull requests** |
 | `b` | Branches popup |
-| `?` | every action and its key (filterable) |
+| `?` | every action and its key (filterable) — always shown at the right end of the hint bar |
 | `ctrl+p` | command palette |
 | `alt+enter` or `.` | actions for whatever is selected |
 | `tab` / `shift+tab` | move between panes |
@@ -97,6 +97,8 @@ gp() {
 | `q` | quit |
 
 Panes can be resized by dragging the thin dividers between them — including the one above the commit message box (double-click resets); sizes are remembered. In the key hints, `^` means Ctrl.
+
+**Lists** — pull requests, PR checks, worktrees and the operation history — all work the same way: `/` filters as you type (`escape` clears), `>` sorts by the next column and `<` reverses it, or click a column header (again to reverse). The sort is remembered.
 
 ## Workflows
 
@@ -136,7 +138,7 @@ Panes can be resized by dragging the thin dividers between them — including th
 | `b` → `ctrl+e` | Compare window: what's only on either branch, already-picked commits marked ✓ |
 
 ### Worktrees (`3`)
-`/` filter (name, branch, path, or words like `dirty`, `locked`, `rebase`) · `n` new · `enter` switch · `d` remove · `m` move · `l` lock · `s` open a shell there · `y` copy path. In the Branches popup, `ctrl+w` makes a worktree for a branch.
+`/` filter (name, branch, path, or words like `dirty`, `locked`, `rebase`) · `>`/`<` sort · `n` new · `enter` switch · `d` remove · `m` move · `l` lock · `s` open a shell there · `y` copy path. In the Branches popup, `ctrl+w` makes a worktree for a branch.
 
 ### Pull requests (`7`)
 Needs the [GitHub CLI](https://cli.github.com) (`gh auth login`). Lists *Mine · Review requested · Assigned · All open · Closed* with CI and review status; the current branch's PR shows in the header (`PR #12 ✓`). The list appears first and CI/review fill in a moment later; a PR's commits are fetched in the background as soon as you select it.
@@ -144,7 +146,7 @@ Needs the [GitHub CLI](https://cli.github.com) (`gh auth login`). Lists *Mine ·
 | Key | |
 |---|---|
 | `/` | filter the list as you type — words, `author:` `label:` `base:` `head:` `status:failure` `review:approved` `draft:false`, `-` to exclude; `enter` runs it as a GitHub search, `escape` clears |
-| `s` / `S` | sort by the next column / reverse (or click a column header; again to flip) |
+| `>` / `<` | sort by the next column / reverse it (or click a column header; again to reverse) |
 | `enter` | check out the PR (Smart / Force Checkout if local changes are in the way) |
 | `w` | check it out in a **new worktree** |
 | `n` | create a PR from the current branch — pushes it if needed, drafts title and description from its commits (also *Create Pull Request…* on any branch in the Branches popup) |

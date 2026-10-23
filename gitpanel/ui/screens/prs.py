@@ -9,13 +9,12 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
-from textual import events, on, work
+from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.timer import Timer
 from textual.widgets import (
     DataTable,
-    Input,
     Markdown,
     OptionList,
     Select,
@@ -28,7 +27,7 @@ from textual.widgets.option_list import Option
 from ...actions.context import Scope, SelectionContext
 from ...forge.filters import pr_matches
 from ...forge.github import QUERIES, GitHub, detect
-from ...forge.models import CIState, PullRequest, ReviewThread
+from ...forge.models import Check, CIState, PullRequest, ReviewThread
 from ...forge.runner import ForgeError
 from ...git import patch as P
 from ...git.graph import GraphRow
@@ -36,6 +35,7 @@ from ...git.log import LogFilter, load_page
 from ...git.markers import PickedMarkers, RefMarkers, collect
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
+from ..widgets.list_table import Col, ListTable, words_match
 from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
@@ -68,41 +68,14 @@ DEBOUNCE = 0.2  # seconds the list cursor must rest before a PR's details are fe
 DETAIL_TTL = 60.0  # cached details younger than this aren't fetched again on highlight
 
 
-# list columns: key, label, width
-COLUMNS = (
-    ("num", "#", 6),
-    ("ci", "CI", 4),
-    ("review", "Review", 9),
-    ("title", "Title", None),
-    ("author", "Author", 10),
-    ("updated", "Updated", 9),
-)
 CI_ORDER = {"failure": 0, "pending": 1, "success": 2, "none": 3}
 REVIEW_ORDER = {"CHANGES_REQUESTED": 0, "REVIEW_REQUIRED": 1, "APPROVED": 2, "": 3}
-NEWEST_FIRST = ("num", "updated")  # columns whose first click sorts descending
+CHECK_ORDER = {"failure": 0, "cancelled": 1, "pending": 2, "success": 3, "neutral": 4, "skipped": 5}
 
 
-class PRTable(DataTable):
-    """The PR list: the Title column takes whatever width the fixed columns leave."""
-
-    def on_resize(self) -> None:
-        self.fit_title()
-
-    def fit_title(self) -> None:
-        if "title" not in self.columns:
-            return
-        others = sum(w or 0 for k, _, w in COLUMNS if k != "title")
-        padding = 2 * self.cell_padding * len(COLUMNS)
-        # leave room for the vertical scrollbar: it appears without a resize event
-        width = self.size.width - self.styles.scrollbar_size_vertical
-        room = width - others - padding
-        column = self.columns["title"]  # type: ignore[index]
-        column.auto_width = False
-        column.width = max(room, 8)
-        # DataTable has no public "column width changed" hook; these are what add_column uses
-        self._require_update_dimensions = True
-        self._clear_caches()
-        self.refresh()
+def _duration(c: Check) -> str:
+    dur = c.duration
+    return f"{int(dur // 60)}m{int(dur % 60):02d}s" if dur is not None else ""
 
 
 def ago(when: datetime | None) -> str:
@@ -121,28 +94,20 @@ class PRsView(Vertical):
 
     DEFAULT_CSS = """
     PRsView { height: 1fr; }
-    PRsView #pr-bar { height: 3; padding: 0 1; }
-    PRsView #pr-query { width: 26; }
-    PRsView #pr-search { width: 1fr; margin: 1 1 0 1; }
-    PRsView #pr-status { width: auto; max-width: 60; padding: 1 1 0 0; color: $text-muted; }
     PRsView #pr-main { height: 1fr; }
     PRsView #pr-left { width: 50%; min-width: 30; }
-    PRsView #pr-list { height: 1fr; background: $surface; }
-    PRsView #pr-empty { height: auto; padding: 1 2; color: $text-muted; display: none; }
-    PRsView #pr-empty.-shown { display: block; }
+    PRsView #pr-query { width: 22; }
     PRsView TabbedContent { height: 1fr; width: 1fr; }
     PRsView #pr-overview { padding: 0 1; }
     PRsView #pr-files { width: 26; background: $surface; border: none; }
     PRsView #pr-thread { height: auto; max-height: 12; padding: 0 1; background: $panel;
                          display: none; }
     PRsView #pr-thread.-shown { display: block; }
-    PRsView #pr-checks { height: 1fr; background: $surface; }
     """
 
     def __init__(self) -> None:
         super().__init__(id="prs-view")
         self.provider: GitHub | None = None
-        self.prs: list[PullRequest] = []
         self.detail: PullRequest | None = None
         self.diffs: list[P.FileDiff] = []
         self.threads: list[ReviewThread] = []
@@ -157,32 +122,33 @@ class PRsView(Vertical):
         self._pending: Timer | None = None
         self._query = "mine"
         self._searched = ""  # text last sent to GitHub as a search (enter in the filter box)
-        self._updated = ""
-        self._sort: tuple[str, bool] | None = None  # (column key, descending); None = GitHub's
 
     @property
     def gp(self) -> GitPanelApp:
         return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
-        with Horizontal(id="pr-bar"):
-            yield Select(
-                [(label, key) for key, (label, _) in QUERIES.items()],
-                value="mine",
-                allow_blank=False,
-                id="pr-query",
-            )
-            yield Input(
+        with Horizontal(id="pr-main"):
+            yield ListTable[PullRequest](
+                self._pr_columns(),
+                key=lambda pr: str(pr.number),
+                matches=self._pr_matches,
                 placeholder="/ Filter: words, author:, label:, status:failure, review:approved, "
                 "draft:false — enter searches GitHub",
-                id="pr-search",
-                compact=True,
+                controls=[
+                    Select(
+                        [(label, key) for key, (label, _) in QUERIES.items()],
+                        value="mine",
+                        allow_blank=False,
+                        compact=True,
+                        id="pr-query",
+                    )
+                ],
+                empty=self._empty_text,
+                state_key="prs.list",
+                table_id="pr-list",
+                id="pr-left",
             )
-            yield Static("", id="pr-status")
-        with Horizontal(id="pr-main"):
-            with Vertical(id="pr-left"):
-                yield Static("", id="pr-empty")
-                yield PRTable(id="pr-list", cursor_type="row", zebra_stripes=True)
             yield Splitter("prs.list", "x", minimum=30)
             with TabbedContent(id="pr-tabs"):
                 with (
@@ -201,16 +167,105 @@ class PRsView(Vertical):
                         yield DiffView(id="pr-diff")
                         yield Static("", id="pr-thread")
                 with TabPane("Checks", id="tab-checks"):
-                    yield DataTable(id="pr-checks", cursor_type="row")
+                    yield ListTable[tuple[int, Check]](
+                        [
+                            Col(
+                                "state",
+                                "",
+                                2,
+                                lambda ic: self._check_icon(ic[1]),
+                                sort=lambda ic: CHECK_ORDER.get(ic[1].state, 9),
+                            ),
+                            Col(
+                                "name",
+                                "Check",
+                                None,
+                                lambda ic: ic[1].name,
+                                sort=lambda ic: ic[1].name.casefold(),
+                            ),
+                            Col(
+                                "workflow",
+                                "Workflow",
+                                18,
+                                lambda ic: ic[1].workflow,
+                                sort=lambda ic: ic[1].workflow.casefold(),
+                            ),
+                            Col(
+                                "time",
+                                "Time",
+                                8,
+                                lambda ic: _duration(ic[1]),
+                                sort=lambda ic: ic[1].duration or 0.0,
+                                descending_first=True,
+                            ),
+                        ],  # fmt: skip
+                        key=lambda ic: str(ic[0]),
+                        matches=lambda ic, text: words_match(
+                            text, f"{ic[1].name} {ic[1].workflow} {ic[1].state}"
+                        ),
+                        placeholder="/ Filter checks (name, workflow, failure …)",
+                        empty=lambda text: f"No checks match “{text}”." if text else "No checks.",
+                        state_key="prs.checks",
+                        table_id="pr-checks",
+                        zebra=False,
+                        id="pr-checks-list",
+                    )
 
-    def on_mount(self) -> None:
-        table = self.query_one("#pr-list", DataTable)
-        for key, label, width in COLUMNS:
-            table.add_column(label, width=width, key=key)
-        table.fit_title()  # type: ignore[attr-defined]
-        checks = self.query_one("#pr-checks", DataTable)
-        for label, width in (("", 2), ("Check", 32), ("Workflow", 18), ("Time", 8)):
-            checks.add_column(label, width=width)
+    # -- list columns ------------------------------------------------------------------------
+    def _pr_columns(self) -> list[Col[PullRequest]]:
+        def status(pr: PullRequest) -> tuple[CIState | None, str | None]:
+            return self._statuses.get(pr.number, (None, None))
+
+        def title(pr: PullRequest) -> Text:
+            t = Text(pr.title, style="dim" if pr.draft else "")
+            if pr.draft:
+                t.append("  draft", style=f"italic {PURPLE}")
+            for label in pr.labels[:3]:
+                t.append(f"  {label}", style="#3FB8AF")
+            return t
+
+        return [
+            Col("num", "#", 6, lambda pr: Text(f"#{pr.number}", style="bold"),
+                sort=lambda pr: pr.number, descending_first=True),
+            Col("ci", "CI", 4, lambda pr: self._ci_cell(status(pr)[0]),
+                sort=lambda pr: CI_ORDER.get(status(pr)[0] or "", 4)),
+            Col("review", "Review", 9, lambda pr: self._review_cell(status(pr)[1]),
+                sort=lambda pr: REVIEW_ORDER.get(status(pr)[1] or "", 4)
+                if status(pr)[1] is not None else 4),
+            Col("title", "Title", None, title, sort=lambda pr: pr.title.casefold()),
+            Col("author", "Author", 10, lambda pr: pr.author,
+                sort=lambda pr: pr.author.casefold()),
+            Col("updated", "Updated", 9, lambda pr: ago(pr.updated),
+                sort=lambda pr: pr.updated.timestamp() if pr.updated else 0.0,
+                descending_first=True),
+        ]  # fmt: skip
+
+    def _pr_matches(self, pr: PullRequest, text: str) -> bool:
+        # text GitHub already searched for is left to GitHub (it also matches descriptions,
+        # which the list doesn't have)
+        if text == self._searched.strip():
+            return True
+        ci, review = self._statuses.get(pr.number, (None, None))
+        return pr_matches(pr, text, ci=ci, review=review)
+
+    def _empty_text(self, text: str) -> str:
+        label = QUERIES.get(self._query, ("", ""))[0]
+        if text:
+            return f"No pull requests in “{label}” match “{text}”."
+        return f"No pull requests in “{label}”."
+
+    @property
+    def pr_list(self) -> ListTable[PullRequest]:
+        return self.query_one("#pr-left", ListTable)
+
+    @property
+    def prs(self) -> list[PullRequest]:
+        return self.pr_list.items
+
+    @staticmethod
+    def _check_icon(c: Check) -> Text:
+        icon, color = CHECK_ICON[c.state]
+        return Text(icon, style=f"bold {color}")
 
     def focus_default(self) -> None:
         self.query_one("#pr-list", DataTable).focus()
@@ -226,15 +281,6 @@ class PRsView(Vertical):
             self.reload()
 
     # -- loading -------------------------------------------------------------------------
-    def _status(self, text: str, style: str = "") -> None:
-        self.query_one("#pr-status", Static).update(Text(text, style=style))
-
-    def _empty(self, text: str | None) -> None:
-        empty = self.query_one("#pr-empty", Static)
-        empty.set_class(text is not None, "-shown")
-        if text is not None:
-            empty.update(text)
-
     @work(exclusive=True, group="prs-list")
     async def reload(self) -> None:
         session = self.gp.session
@@ -246,13 +292,14 @@ class PRsView(Vertical):
             self._lists.clear()
             self._statuses.clear()
             self._details.clear()
+        listing = self.pr_list
         if self.provider is None:
-            self._empty(
+            listing.show_message(
                 "This repository has no github.com remote, or the GitHub CLI (gh) "
                 "isn't installed.\n\nInstall gh from https://cli.github.com and run "
                 "`gh auth login`."
             )
-            self._status("")
+            listing.set_note("")
             return
         query = str(self.query_one("#pr-query", Select).value)
         search = self._searched
@@ -262,131 +309,31 @@ class PRsView(Vertical):
         cached = self._lists.get(key)
         if cached is not None and [p.number for p in cached] != [p.number for p in self.prs]:
             self._fill_list(cached, query, keep)
-        self._status("loading…")
+        listing.set_note("loading…")
         try:
             prs = await self.provider.list_prs(query, search)
         except ForgeError as e:
-            self._empty(f"{e}\n\n{e.hint}" if e.hint else str(e))
-            self._status("")
+            listing.show_message(f"{e}\n\n{e.hint}" if e.hint else str(e))
+            listing.set_note("")
             return
         self._lists[key] = prs
-        self._updated = f"updated {datetime.now():%H:%M}"
+        listing.show_message(None)
+        listing.set_note(f"updated {datetime.now():%H:%M}")
         self._fill_list(prs, query, keep, force=True)
         self.load_statuses([p.number for p in prs])
 
     def _fill_list(
         self, prs: list[PullRequest], query: str, keep: int | None, *, force: bool = False
     ) -> None:
-        self.prs = prs
         self._query = query
-        self._render_rows(keep, force=force)
-
-    def _filter_text(self) -> str:
-        """The filter to apply locally; text GitHub already searched for is left to GitHub
-        (it also matches PR descriptions, which the list doesn't have)."""
-        text = self.query_one("#pr-search", Input).value.strip()
-        return "" if text == self._searched.strip() else text
-
-    def _render_rows(self, keep: int | None = None, *, force: bool = False) -> None:
-        text = self._filter_text()
-        shown = [
-            pr for pr in self.prs if not text or pr_matches(pr, text, **self._known(pr.number))
-        ]
-        shown = self._sorted(shown)
-        table = self.query_one("#pr-list", DataTable)
-        current = self.detail.number if self.detail else keep
-        table.clear()
-        for pr in shown:
-            ci, review = self._statuses.get(pr.number, (None, None))
-            title = Text(pr.title, style="dim" if pr.draft else "")
-            if pr.draft:
-                title.append("  draft", style=f"italic {PURPLE}")
-            for label in pr.labels[:3]:
-                title.append(f"  {label}", style="#3FB8AF")
-            table.add_row(
-                Text(f"#{pr.number}", style="bold"),
-                self._ci_cell(ci),
-                self._review_cell(review),
-                title,
-                pr.author,
-                ago(pr.updated),
-                key=str(pr.number),
-            )
-        label = QUERIES.get(self._query, ("", ""))[0]
-        if shown:
-            self._empty(None)
-        elif self.prs:
-            self._empty(f"No pull requests in “{label}” match “{text}”.")
-        else:
-            self._empty(f"No pull requests in “{label}”.")
-        count = f"{len(shown)} of {len(self.prs)}" if text else str(len(self.prs))
-        self._status(" · ".join(x for x in (count, self._updated) if x))
-        if shown:
-            row = next((i for i, p in enumerate(shown) if p.number == (keep or current)), 0)
-            table.move_cursor(row=row)
-            self._select(shown[row].number, force=force)
+        current = self.detail.number if self.detail else None
+        self.pr_list.set_items(prs, keep=str(keep or current) if (keep or current) else None)
+        selected = self.pr_list.selected
+        if selected is not None:
+            self._select(selected.number, force=force)
         else:
             self.detail = None
             self._clear_detail()
-
-    # -- sorting ------------------------------------------------------------------------------
-    def _sorted(self, prs: list[PullRequest]) -> list[PullRequest]:
-        if self._sort is None:
-            return prs
-        column, descending = self._sort
-
-        def key(pr: PullRequest) -> Any:
-            ci, review = self._statuses.get(pr.number, (None, None))
-            return {
-                "num": pr.number,
-                "ci": CI_ORDER.get(ci, 4) if ci else 4,
-                "review": REVIEW_ORDER.get(review, 4) if review is not None else 4,
-                "title": pr.title.casefold(),
-                "author": pr.author.casefold(),
-                "updated": pr.updated.timestamp() if pr.updated else 0.0,
-            }[column]
-
-        return sorted(prs, key=key, reverse=descending)
-
-    def sort_by(self, column: str | None, descending: bool | None = None) -> None:
-        """Sort the list by `column` (None = GitHub's order). Without `descending`, a new
-        column starts in its natural direction and the current one flips."""
-        if column is None:
-            self._sort = None
-        else:
-            if descending is None:
-                if self._sort is not None and self._sort[0] == column:
-                    descending = not self._sort[1]
-                else:
-                    descending = column in NEWEST_FIRST
-            self._sort = (column, descending)
-        table = self.query_one("#pr-list", DataTable)
-        for key, label, _ in COLUMNS:
-            arrow = ""
-            if self._sort is not None and self._sort[0] == key:
-                arrow = " ▼" if self._sort[1] else " ▲"
-            table.columns[key].label = Text(label + arrow)  # type: ignore[index]
-        table.refresh()
-        self._render_rows()
-
-    @on(DataTable.HeaderSelected, "#pr-list")
-    def _header(self, event: DataTable.HeaderSelected) -> None:
-        self.sort_by(str(event.column_key.value))
-
-    def _cycle_sort(self, reverse: bool) -> None:
-        if reverse:
-            if self._sort is not None:
-                self.sort_by(self._sort[0], not self._sort[1])
-            return
-        keys = [k for k, _, _ in COLUMNS]
-        current = keys.index(self._sort[0]) if self._sort is not None else -1
-        self.sort_by(keys[current + 1] if current + 1 < len(keys) else None)
-        label = next((lbl for k, lbl, _ in COLUMNS if self._sort and k == self._sort[0]), None)
-        self.gp.notify(f"Sorted by {label}" if label else "GitHub's order", timeout=2)
-
-    def _known(self, number: int) -> dict[str, Any]:
-        ci, review = self._statuses.get(number, (None, None))
-        return {"ci": ci, "review": review}
 
     @staticmethod
     def _ci_cell(ci: CIState | None) -> Text:
@@ -410,58 +357,27 @@ class PRsView(Vertical):
         except ForgeError:
             return
         self._statuses.update(found)
-        if any(q in self._filter_text() for q in ("status:", "review:")) or (
-            self._sort is not None and self._sort[0] in ("ci", "review")
-        ):
-            self._render_rows()  # the filter or sort order depends on what just arrived
-            return
-        table = self.query_one("#pr-list", DataTable)
-        columns = list(table.columns)
-        for n, (ci, review) in found.items():
-            if str(n) in table.rows:
-                table.update_cell(str(n), columns[1], self._ci_cell(ci))
-                table.update_cell(str(n), columns[2], self._review_cell(review))
+        self.pr_list.refresh_rows()  # cells, filter and sort can all depend on these
 
     @on(Select.Changed, "#pr-query")
     def _query_changed(self) -> None:
         self.reload()
 
-    @on(Input.Submitted, "#pr-search")
-    def _search(self) -> None:
-        self._searched = self.query_one("#pr-search", Input).value.strip()
+    @on(ListTable.FilterSubmitted, "#pr-left")
+    def _search(self, event: ListTable.FilterSubmitted) -> None:
+        self._searched = event.text
         self.reload()
-        self.query_one("#pr-list", DataTable).focus()
 
-    @on(Input.Changed, "#pr-search")
-    def _filter(self) -> None:
-        self._render_rows()
+    @on(ListTable.FilterChanged, "#pr-left")
+    def _filter_cleared(self, event: ListTable.FilterChanged) -> None:
+        if not event.text and self._searched:  # back to the unsearched list
+            self._searched = ""
+            self.reload()
 
-    def on_key(self, event: events.Key) -> None:
-        focused = self.screen.focused
-        search = self.query_one("#pr-search", Input)
-        on_list = focused is self.query_one("#pr-list", DataTable)
-        if event.key == "slash" and on_list:
-            event.stop()
-            event.prevent_default()
-            search.focus()
-        elif event.character in ("s", "S") and on_list:
-            event.stop()
-            event.prevent_default()
-            self._cycle_sort(reverse=event.character == "S")
-        elif event.key == "escape" and focused is search:
-            event.stop()
-            event.prevent_default()
-            if search.value:
-                search.value = ""
-                if self._searched:  # back to the unsearched list
-                    self._searched = ""
-                    self.reload()
-            self.query_one("#pr-list", DataTable).focus()
-
-    @on(DataTable.RowHighlighted, "#pr-list")
-    def _row(self, event: DataTable.RowHighlighted) -> None:
-        if event.row_key and event.row_key.value:
-            self._select(int(event.row_key.value))
+    @on(ListTable.Highlighted, "#pr-left")
+    def _row(self, event: ListTable.Highlighted) -> None:
+        if event.item is not None:
+            self._select(event.item.number)
         self.gp.refresh_hints()
 
     def _select(self, number: int, *, force: bool = False) -> None:
@@ -488,7 +404,7 @@ class PRsView(Vertical):
         self.query_one("#pr-commits", CommitTable).set_rows([], has_more=False)
         self.query_one("#pr-files", OptionList).clear_options()
         self.query_one("#pr-diff", DiffView).set_diff(None, None)
-        self.query_one("#pr-checks", DataTable).clear()
+        self.query_one("#pr-checks-list", ListTable).set_items([])
 
     @work(exclusive=True, group="prs-detail")
     async def show_pr(self, number: int, *, force: bool = False) -> None:
@@ -568,18 +484,7 @@ class PRsView(Vertical):
         self.query_one("#pr-conversation", Static).update(conv)
 
     def _render_checks(self, pr: PullRequest) -> None:
-        table = self.query_one("#pr-checks", DataTable)
-        table.clear()
-        for i, c in enumerate(pr.checks):
-            icon, color = CHECK_ICON[c.state]
-            dur = c.duration
-            table.add_row(
-                Text(icon, style=f"bold {color}"),
-                c.name,
-                c.workflow,
-                f"{int(dur // 60)}m{int(dur % 60):02d}s" if dur is not None else "",
-                key=str(i),
-            )
+        self.query_one("#pr-checks-list", ListTable).set_items(list(enumerate(pr.checks)))
 
     @on(TabbedContent.TabActivated, "#pr-tabs")
     async def _tab(self) -> None:
@@ -763,9 +668,9 @@ class PRsView(Vertical):
             form["where"] = "list"
         elif focused is self.query_one("#pr-checks", DataTable) and pr is not None:
             form["where"] = "checks"
-            row = self.query_one("#pr-checks", DataTable).cursor_row
-            if 0 <= row < len(pr.checks):
-                form["check"] = pr.checks[row]
+            selected = self.query_one("#pr-checks-list", ListTable).selected
+            if selected is not None:
+                form["check"] = selected[1]
         elif focused is self.query_one("#pr-diff", DiffView):
             form["where"] = "files"
             ref = self.query_one("#pr-diff", DiffView).cursor_line_ref()
@@ -786,6 +691,5 @@ class PRsView(Vertical):
         return SelectionContext(**{**base.__dict__, **kwargs})
 
     def hint_extras(self) -> list[tuple[str, str]]:
-        if self.screen.focused is self.query_one("#pr-list", DataTable):
-            return [("/", "filter"), ("s/S", "sort/reverse"), ("tab", "next pane")]
-        return [("tab", "next pane")]
+        hints = [h for lt in self.query(ListTable) for h in lt.hints()]
+        return [*hints, ("tab", "next pane")]

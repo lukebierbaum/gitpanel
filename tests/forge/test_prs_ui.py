@@ -73,7 +73,7 @@ async def test_pr_window_without_github(repo):
         await settle(pilot, app)
         await pilot.press("7")
         await settle(pilot, app)
-        empty = app.view.query_one("#pr-empty")
+        empty = app.view.query_one("#pr-left .lt-message")
         assert empty.has_class("-shown") and "github.com remote" in str(empty.render())
 
 
@@ -101,7 +101,7 @@ async def test_pr_list_filters_as_you_type(gh_repo):
         table = view.query_one("#pr-list", DataTable)
         assert table.row_count == 2
         await pilot.press("slash")
-        assert app.focused is view.query_one("#pr-search")
+        assert app.focused is view.query_one("#pr-left .lt-filter")
         await pilot.press(*"fuzz")
         await settle(pilot, app)
         assert table.row_count == 1 and view.detail is not None and view.detail.number == 1
@@ -125,18 +125,20 @@ async def test_pr_list_sorts_by_column(gh_repo):
         def numbers() -> list[str]:
             return [str(table.get_row_at(i)[0]) for i in range(table.row_count)]
 
-        view.sort_by("num")  # newest first
+        listing = view.pr_list
+        listing.sort_by("num")  # newest first
         assert numbers() == ["#2", "#1"] and str(table.columns["num"].label) == "# ▼"
-        view.sort_by("num")  # same column again flips
+        listing.sort_by("num")  # same column again flips
         assert numbers() == ["#1", "#2"]
-        view.sort_by("ci")  # failing first; #2 has no checks
+        listing.sort_by("ci")  # failing first; #2 has no checks
         await settle(pilot, app)
         assert numbers() == ["#1", "#2"]
-        await pilot.press("S")  # reverse
+        table.focus()
+        await pilot.press("<")  # reverse
         assert numbers() == ["#2", "#1"]
-        view.sort_by("title")
+        listing.sort_by("title")
         assert numbers() == ["#2", "#1"]  # "Add CLI flags" < "Harden parser…"
-        await pilot.press("s")  # next column: author ("lin" < "me")
+        await pilot.press(">")  # next column: author ("lin" < "me")
         assert numbers() == ["#1", "#2"] and str(table.columns["author"].label) == "Author ▲"
 
 

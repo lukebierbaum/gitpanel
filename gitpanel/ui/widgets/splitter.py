@@ -19,24 +19,33 @@ def _state_file() -> Path:
     return Path(base) / "gitpanel" / "layout.json"
 
 
-def load_sizes() -> dict[str, int]:
+def load_state() -> dict[str, object]:
+    """Remembered UI state (pane sizes, list sort orders), keyed like "prs.list"."""
     try:
         data = json.loads(_state_file().read_text())
     except (OSError, ValueError):
         return {}
-    return {k: int(v) for k, v in data.items() if isinstance(v, int)}
+    return data if isinstance(data, dict) else {}
 
 
-def save_size(key: str, cells: int | None) -> None:
-    sizes = load_sizes()
-    if cells is None:
-        sizes.pop(key, None)
+def save_state(key: str, value: object | None) -> None:
+    state = load_state()
+    if value is None:
+        state.pop(key, None)
     else:
-        sizes[key] = cells
+        state[key] = value
     path = _state_file()
     with contextlib.suppress(OSError):
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(sizes, indent=1, sort_keys=True))
+        path.write_text(json.dumps(state, indent=1, sort_keys=True))
+
+
+def load_sizes() -> dict[str, int]:
+    return {k: v for k, v in load_state().items() if isinstance(v, int)}
+
+
+def save_size(key: str, cells: int | None) -> None:
+    save_state(key, cells)
 
 
 class Splitter(Widget):

@@ -15,6 +15,7 @@ from ...actions.context import SelectionContext
 from ...actions.registry import Registry
 from ...git.journal import JournalEntry
 from ..widgets.key_hints import KeyHints
+from ..widgets.list_table import Col, ListTable
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
@@ -48,17 +49,26 @@ def describe_refs(e: JournalEntry) -> Text:
     return t
 
 
+def _state(e: JournalEntry) -> Text:
+    state = Text()
+    if e.undone:
+        state.append("undone ", style="italic dim")
+    if e.failed:
+        state.append("failed ", style="#E5484D")
+    if e.backup:
+        state.append("⛁ backup", style=PURPLE)
+    return state
+
+
 class JournalScreen(Screen[None]):
     DEFAULT_CSS = """
     JournalScreen { layout: vertical; }
     JournalScreen #jr-header { height: 1; padding: 0 1; background: $panel; }
-    JournalScreen DataTable { height: 1fr; background: $surface; }
     """
     BINDINGS = [Binding("escape", "dismiss", "Close")]
 
     def __init__(self) -> None:
         super().__init__()
-        self.entries: list[JournalEntry] = []
 
     @property
     def gp(self) -> GitPanelApp:
@@ -66,59 +76,61 @@ class JournalScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Static("", id="jr-header")
-        yield DataTable(id="jr-table", cursor_type="row")
+        yield ListTable[JournalEntry](
+            [
+                Col("id", "#", 5, lambda e: str(e.id), sort=lambda e: e.id, descending_first=True),
+                Col(
+                    "when",
+                    "When",
+                    17,
+                    lambda e: e.when.astimezone().strftime("%m-%d %H:%M:%S"),
+                    sort=lambda e: e.when,
+                    descending_first=True,
+                ),
+                Col(
+                    "op",
+                    "Operation",
+                    44,
+                    lambda e: Text(e.op, style="dim strike" if e.undone else ""),
+                    sort=lambda e: e.op.casefold(),
+                ),
+                Col("state", "State", 18, _state, sort=lambda e: str(_state(e))),
+                Col("changes", "Changes", None, describe_refs),
+            ],  # fmt: skip
+            key=lambda e: str(e.id),
+            placeholder="/ Filter operations (commit, rebase, undone, branch names …)",
+            empty=lambda text: f"No operations match “{text}”." if text else "Nothing yet.",
+            state_key="journal.list",
+            table_id="jr-table",
+            zebra=False,
+        )
         yield KeyHints(id="jr-hints")
 
+    @property
+    def entries(self) -> list[JournalEntry]:
+        return self.query_one(ListTable).items
+
     def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        for label, width in (
-            ("#", 5),
-            ("When", 17),
-            ("Operation", 44),
-            ("State", 18),
-            ("Changes", None),
-        ):
-            table.add_column(label, width=width)
         self.reload()
-        table.focus()
+        self.query_one("#jr-table", DataTable).focus()
 
     def reload(self) -> None:
         session = self.gp.session
         if session is None:
             return
-        self.entries = list(reversed(session.journal.entries()))
-        table = self.query_one(DataTable)
-        prev = table.cursor_row
-        table.clear()
-        for e in self.entries:
-            state = Text()
-            if e.undone:
-                state.append("undone ", style="italic dim")
-            if e.failed:
-                state.append("failed ", style="#E5484D")
-            if e.backup:
-                state.append("⛁ backup", style=PURPLE)
-            op = Text(e.op, style="dim strike" if e.undone else "")
-            table.add_row(
-                str(e.id),
-                e.when.astimezone().strftime("%m-%d %H:%M:%S"),
-                op,
-                state,
-                describe_refs(e),
-            )
-        if self.entries:
-            table.move_cursor(row=max(0, min(prev, len(self.entries) - 1)))
+        entries = list(reversed(session.journal.entries()))
+        self.query_one(ListTable).set_items(entries)
         header = Text()
         header.append("Operation history", style="bold")
         header.append(
-            f"   {sum(not e.undone for e in self.entries)} undoable · "
-            f"{sum(e.undone for e in self.entries)} redoable · enter: undo/redo down "
+            f"   {sum(not e.undone for e in entries)} undoable · "
+            f"{sum(e.undone for e in entries)} redoable · enter: undo/redo down "
             "to the selected entry · esc close",
             style="dim",
         )
         self.query_one("#jr-header", Static).update(header)
 
-    @on(DataTable.RowHighlighted)
+    @on(ListTable.Highlighted)
     def _row(self) -> None:
         self.gp.refresh_hints()
 
@@ -127,15 +139,15 @@ class JournalScreen(Screen[None]):
             self.reload()
 
     def context(self, base: SelectionContext) -> SelectionContext:
-        tables = self.query(DataTable)
         form: dict[str, Any] = {}
-        if tables and self.entries:
-            row = tables.first().cursor_row
-            if 0 <= row < len(self.entries):
-                form["journal_entry"] = self.entries[row].id
+        lists = self.query(ListTable)
+        selected = lists.first().selected if lists else None
+        if selected is not None:
+            form["journal_entry"] = selected.id
         return SelectionContext(**{**base.__dict__, "screen": "journal", "form": form})
 
     def show_hints(self, registry: Registry, ctx: SelectionContext) -> None:
         hints = self.query(KeyHints)
         if hints:
-            hints.first().show_for(registry, ctx, [("esc", "close")], screen_only=True)
+            extras = [*self.query_one(ListTable).hints(), ("esc", "close")]
+            hints.first().show_for(registry, ctx, extras, screen_only=True)

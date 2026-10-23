@@ -20,7 +20,7 @@ async def test_journal_undo_to_here_and_dynamic_label(repo):
             await settle(pilot, app)
             await pilot.press("ctrl+k")
             await settle(pilot, app)
-        hints = str(app.query_one("#hints").render())
+        hints = app.query_one("#hints").text
         assert "Undo “Commit: commit 1”" in hints
         await pilot.press("alt+z")
         await settle(pilot, app)

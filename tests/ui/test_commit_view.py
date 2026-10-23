@@ -203,7 +203,7 @@ async def test_digit_keys_switch_tool_windows_and_hints_spell_out_alt(repo):
     app = GitPanelApp(repo.path)
     async with app.run_test(size=(160, 40)) as pilot:
         await settle(pilot, app)
-        hints = str(app.query_one("#hints").render())
+        hints = app.query_one("#hints").text
         assert "⌥" not in hints and "alt+enter" in hints
         for key, view in (
             ("2", "log-view"),
@@ -220,3 +220,13 @@ async def test_digit_keys_switch_tool_windows_and_hints_spell_out_alt(repo):
         await pilot.press("2")
         await settle(pilot, app)
         assert app.view.id == "commit-view" and app.query_one("#commit-msg").text == "2"
+
+
+async def test_help_key_is_always_pinned_to_the_right_of_the_hint_bar(repo):
+    app = GitPanelApp(repo.path)
+    async with app.run_test(size=(80, 30)) as pilot:  # far too narrow for all the hints
+        await settle(pilot, app)
+        bar = app.query_one("#hints")
+        line = str(bar.render())
+        assert line.rstrip().endswith("?  help") and "…" in line
+        assert len(line) <= bar.content_region.width

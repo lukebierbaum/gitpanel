@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
-from textual import events, on, work
+from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import DataTable, Input, Static
+from textual.widgets import DataTable, Static
 
 from ...actions.context import Scope, SelectionContext
 from ...git import worktrees as W
 from ...git.session import Worktree
+from ..widgets.list_table import Col, ListTable, words_match
 
 if TYPE_CHECKING:
     from ..app import GitPanelApp
@@ -41,14 +43,15 @@ def _haystack(wt: Worktree, s: W.WorktreeSummary) -> str:
     return " ".join(words).lower()
 
 
+Item = tuple[Worktree, W.WorktreeSummary]
+
+
 class WorktreesView(Vertical):
     name_id = "worktrees"
     stale = True
 
     DEFAULT_CSS = """
     WorktreesView { height: 1fr; }
-    WorktreesView #wt-filter { margin: 0 1; }
-    WorktreesView DataTable { height: 1fr; background: $surface; }
     WorktreesView #wt-details {
         height: auto; min-height: 5; padding: 1 2; border-top: tall $panel;
     }
@@ -56,37 +59,90 @@ class WorktreesView(Vertical):
 
     def __init__(self) -> None:
         super().__init__(id="worktrees-view")
-        self.all_items: list[tuple[Worktree, W.WorktreeSummary]] = []
-        self.items: list[tuple[Worktree, W.WorktreeSummary]] = []  # the ones shown (filtered)
+        self._active: Path | None = None
 
     @property
     def gp(self) -> GitPanelApp:
         return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
-        yield Input(
+        yield ListTable[Item](
+            self._columns(),
+            key=lambda item: str(item[0].path),
+            matches=lambda item, text: words_match(text, _haystack(*item)),
             placeholder="/ Filter worktrees by name, branch, path or state (dirty, locked …)",
-            id="wt-filter",
-            compact=True,
+            empty=lambda text: f"No worktrees match “{text}”." if text else "",
+            state_key="worktrees.list",
+            table_id="wt-table",
         )
-        table: DataTable[Text | str] = DataTable(
-            id="wt-table", cursor_type="row", zebra_stripes=True
-        )
-        yield table
         yield Static("", id="wt-details")
 
-    def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        for label, width in (
-            ("", 2),
-            ("Worktree", 22),
-            ("Branch", 26),
-            ("Changes", 16),
-            ("↑↓", 9),
-            ("State", 16),
-            ("Path", None),
-        ):
-            table.add_column(label, width=width)
+    @property
+    def listing(self) -> ListTable[Item]:
+        return self.query_one(ListTable)
+
+    def _is_active(self, wt: Worktree) -> bool:
+        return self._active is not None and wt.path.resolve() == self._active
+
+    def _columns(self) -> list[Col[Item]]:
+        def changes(item: Item) -> Text:
+            _, s = item
+            t = Text()
+            if s.missing:
+                t.append("missing", style="red")
+            elif s.dirty:
+                if s.conflicts:
+                    t.append(f"{s.conflicts}! ", style="bold red")
+                if s.staged:
+                    t.append(f"{s.staged}● ", style=GREEN)
+                if s.unstaged:
+                    t.append(f"{s.unstaged}✚ ", style=PURPLE)
+                if s.untracked:
+                    t.append(f"{s.untracked}? ", style="#E3B23C")
+            else:
+                t.append("clean", style="dim")
+            return t
+
+        def state(item: Item) -> str:
+            wt, s = item
+            words = []
+            if wt.is_main:
+                words.append("main")
+            if wt.locked is not None:
+                words.append("🔒 locked")
+            if wt.prunable is not None:
+                words.append("prunable")
+            if s.operation is not None:
+                words.append(s.operation.kind.value)
+            return ", ".join(words)
+
+        def branch(item: Item) -> Text:
+            wt, _ = item
+            return Text(
+                wt.branch_short or f"detached {wt.head[:8] if wt.head else ''}",
+                style=f"bold {GREEN}" if self._is_active(wt) else "",
+            )
+
+        def dirt(item: Item) -> int:
+            _, s = item
+            return s.conflicts * 1000 + s.staged + s.unstaged + s.untracked
+
+        return [
+            Col("active", "", 2,
+                lambda item: Text("●", style=GREEN) if self._is_active(item[0]) else ""),
+            Col("name", "Worktree", 22,
+                lambda item: Text(item[0].name, style="bold" if self._is_active(item[0]) else ""),
+                sort=lambda item: item[0].name.casefold()),
+            Col("branch", "Branch", 26, branch,
+                sort=lambda item: (item[0].branch_short or "~").casefold()),
+            Col("changes", "Changes", 16, changes, sort=dirt, descending_first=True),
+            Col("sync", "↑↓", 9,
+                lambda item: f"↑{item[1].ahead} ↓{item[1].behind}" if item[1].upstream else "",
+                sort=lambda item: item[1].ahead + item[1].behind, descending_first=True),
+            Col("state", "State", 16, state, sort=state),
+            Col("path", "Path", None, lambda item: str(item[0].path),
+                sort=lambda item: str(item[0].path)),
+        ]  # fmt: skip
 
     def focus_default(self) -> None:
         self.query_one(DataTable).focus()
@@ -98,108 +154,26 @@ class WorktreesView(Vertical):
             return
         wts = await session.worktrees()
         summaries = await asyncio.gather(*(W.summary(w) for w in wts))
-        self.all_items = list(zip(wts, summaries, strict=True))
-        self._render_rows()
-
-    def _render_rows(self) -> None:
-        session = self.gp.session
-        if session is None:
-            return
-        table = self.query_one(DataTable)
-        prev_path = self.selected().path if self.selected() is not None else None
-        prev = table.cursor_row
-        words = self.query_one("#wt-filter", Input).value.lower().split()
-        self.items = [
-            (wt, s) for wt, s in self.all_items if all(w in _haystack(wt, s) for w in words)
-        ]
-        table.clear()
-        active = session.active.path.resolve()
-        for wt, s in self.items:
-            is_active = wt.path.resolve() == active
-            changes = Text()
-            if s.missing:
-                changes.append("missing", style="red")
-            elif s.dirty:
-                if s.conflicts:
-                    changes.append(f"{s.conflicts}! ", style="bold red")
-                if s.staged:
-                    changes.append(f"{s.staged}● ", style=GREEN)
-                if s.unstaged:
-                    changes.append(f"{s.unstaged}✚ ", style=PURPLE)
-                if s.untracked:
-                    changes.append(f"{s.untracked}? ", style="#E3B23C")
-            else:
-                changes.append("clean", style="dim")
-            state = []
-            if wt.is_main:
-                state.append("main")
-            if wt.locked is not None:
-                state.append("🔒 locked")
-            if wt.prunable is not None:
-                state.append("prunable")
-            if s.operation is not None:
-                state.append(s.operation.kind.value)
-            branch = Text(
-                wt.branch_short or f"detached {wt.head[:8] if wt.head else ''}",
-                style=f"bold {GREEN}" if is_active else "",
-            )
-            table.add_row(
-                Text("●", style=GREEN) if is_active else "",
-                Text(wt.name, style="bold" if is_active else ""),
-                branch,
-                changes,
-                f"↑{s.ahead} ↓{s.behind}" if s.upstream else "",
-                ", ".join(state),
-                str(wt.path),
-                key=str(wt.path),
-            )
-        if self.items:
-            row = next(
-                (i for i, (wt, _) in enumerate(self.items) if wt.path == prev_path),
-                min(max(prev, 0), len(self.items) - 1),
-            )
-            table.move_cursor(row=row)
+        self._active = session.active.path.resolve()
+        self.listing.set_items(list(zip(wts, summaries, strict=True)))
         self.show_details()
 
-    @on(Input.Changed, "#wt-filter")
-    def _filter(self) -> None:
-        self._render_rows()
-
-    @on(Input.Submitted, "#wt-filter")
-    def _filter_done(self) -> None:
-        self.query_one(DataTable).focus()
-
-    def on_key(self, event: events.Key) -> None:
-        focused = self.screen.focused
-        search = self.query_one("#wt-filter", Input)
-        if event.key == "slash" and focused is self.query_one(DataTable):
-            event.stop()
-            event.prevent_default()
-            search.focus()
-        elif event.key == "escape" and focused is search:
-            event.stop()
-            event.prevent_default()
-            search.value = ""
-            self.query_one(DataTable).focus()
-
     def selected(self) -> Worktree | None:
-        table = self.query_one(DataTable)
-        if not self.items or table.cursor_row < 0 or table.cursor_row >= len(self.items):
-            return None
-        return self.items[table.cursor_row][0]
+        item = self.listing.selected
+        return item[0] if item is not None else None
 
-    @on(DataTable.RowHighlighted)
+    @on(ListTable.Highlighted)
     def _row(self) -> None:
         self.show_details()
         self.gp.refresh_hints()
 
     def show_details(self) -> None:
         details = self.query_one("#wt-details", Static)
-        table = self.query_one(DataTable)
-        if not self.items or table.cursor_row >= len(self.items):
+        item = self.listing.selected
+        if item is None:
             details.update("")
             return
-        wt, s = self.items[table.cursor_row]
+        wt, s = item
         t = Text()
         t.append(f"{wt.path}\n", style="bold")
         t.append(f"HEAD {wt.head[:10] if wt.head else '—'}", style=GREEN)
@@ -231,9 +205,7 @@ class WorktreesView(Vertical):
         return SelectionContext(**{**base.__dict__, **kwargs})
 
     def hint_extras(self) -> list[tuple[str, str]]:
-        if self.screen.focused is self.query_one(DataTable):
-            return [("/", "filter")]
-        return []
+        return self.listing.hints()
 
     def handle_event(self, event: str, data: dict[str, Any]) -> None:
         if event == "worktrees.refresh":
