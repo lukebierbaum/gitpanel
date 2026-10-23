@@ -6,14 +6,6 @@ gitpanel is a keyboard-first Git client for the terminal, modelled on the Git in
 
 ![The Log: branch graph, branches panel, commit details](docs/screenshots/log.svg)
 
-| Commit window | Compare branches |
-|---|---|
-| ![Commit window](docs/screenshots/commit.svg) | ![Compare branches](docs/screenshots/compare.svg) |
-| **Branches popup** | **3-pane conflict resolver** |
-| ![Branches popup](docs/screenshots/branches.svg) | ![Conflict resolver](docs/screenshots/resolver.svg) |
-| **Worktrees** | **Git console** |
-| ![Worktrees](docs/screenshots/worktrees.svg) | ![Console](docs/screenshots/console.svg) |
-
 ## Highlights
 
 - **Stage exactly what you mean** — whole files, single hunks or individual lines, in unified or side-by-side diffs. Changelists, amend, sign-off, commit-and-push.
@@ -25,6 +17,38 @@ gitpanel is a keyboard-first Git client for the terminal, modelled on the Git in
 - **Undo everything** — `z` undoes the last operation (commits, resets, rebases, deleted branches, even discarded changes); `alt+z` shows the full operation history.
 - **See what it does** — the Console shows every git command gitpanel runs and git's reply.
 - **Make it yours** — remap any key, add your own commands, pick a theme (default: *Hulk*, purple and gamma green).
+
+## Tour
+
+### Commit window
+Stage whole files, single hunks or individual lines — unified or side-by-side — with changelists, amend and commit-and-push.
+
+![Commit window](docs/screenshots/commit.svg)
+
+### Branches popup
+PyCharm's branches popup: type to filter, favourites first, everything you can do to a branch one keystroke away.
+
+![Branches popup](docs/screenshots/branches.svg)
+
+### Compare branches
+What's only on either side — commits that are already on your branch (same change, or picked with `-x`) are marked ✓ picked, so you only cherry-pick what's missing.
+
+![Compare branches](docs/screenshots/compare.svg)
+
+### Worktrees
+Every worktree with its branch, local changes and ahead/behind counts. Create, switch, lock, move and remove them without leaving gitpanel.
+
+![Worktrees](docs/screenshots/worktrees.svg)
+
+### 3-pane conflict resolver
+Yours │ result │ theirs. Take a side, take both or edit each chunk, then save and continue the merge, rebase or cherry-pick.
+
+![Conflict resolver](docs/screenshots/resolver.svg)
+
+### Git console
+Every git command gitpanel runs, what it sent and what git answered.
+
+![Git console](docs/screenshots/console.svg)
 
 ## Install
 
