@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "PyCharm-style Git client for the terminal"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = ["textual>=0.80", "rich>=13"]
 
 [project.scripts]

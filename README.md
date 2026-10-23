@@ -157,3 +157,6 @@ pixi run python scripts/screenshots.py   # regenerate docs/screenshots
 ```
 
 Design docs: [architecture](docs/architecture.md) · [milestones](docs/milestones/) · [contributor rules](CLAUDE.md)
+
+## License
+MIT — see [LICENSE](LICENSE).
