@@ -136,6 +136,19 @@ gp() {
 }
 ```
 
+## Large repositories
+gitpanel asks git questions like "which branches contain this commit" and "which commits aren't pushed yet". On big histories git answers these much faster with a **commit-graph** — a local cache file in `.git/objects/info/` (about 60 bytes per commit: ~5 MB for 90,000 commits, built in under a second). It never leaves your machine and is safe to delete. Turn it on for every repository so each fetch keeps it current:
+
+```bash
+git config --global fetch.writeCommitGraph true
+```
+
+or build one right away in a single repository:
+
+```bash
+git commit-graph write --reachable
+```
+
 ## Development
 ```bash
 pixi run test
