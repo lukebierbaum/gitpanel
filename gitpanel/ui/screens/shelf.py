@@ -18,6 +18,7 @@ from ...git import stash as ST
 from ...git.models import StashEntry
 from ..colors import C
 from ..widgets.diff_view import DiffView
+from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
@@ -40,7 +41,6 @@ class ShelfView(Vertical):
     def __init__(self) -> None:
         super().__init__(id="shelf-view")
         self.entries: dict[str, SH.Shelf | StashEntry] = {}
-        self.diffs: list[P.FileDiff] = []
 
     @property
     def gp(self) -> GitPanelApp:
@@ -51,7 +51,7 @@ class ShelfView(Vertical):
             with Vertical(id="shelf-left"):
                 yield OptionList(id="shelf-list")
                 yield Splitter("shelf.list", "y", minimum=3)
-                yield OptionList(id="shelf-files")
+                yield FileList(id="shelf-files")
             yield Splitter("shelf.left", "x", minimum=20)
             yield DiffView(id="shelf-diff")
 
@@ -116,47 +116,40 @@ class ShelfView(Vertical):
 
     @work(exclusive=True, group="shelf-entry")
     async def show_entry(self) -> None:
-        files = self.query_one("#shelf-files", OptionList)
+        files = self.query_one("#shelf-files", FileList)
         view = self.query_one(DiffView)
         entry = self.selected()
-        files.clear_options()
-        self.diffs = []
         if entry is None or self.gp.session is None:
+            files.set_files(None, [])
             view.set_diff(None, None)
             return
         git = self.gp.session.git
         if isinstance(entry, SH.Shelf):
-            self.diffs = P.parse_diff(entry.patch())
+            diffs = P.parse_diff(entry.patch())
             source: P.DiffSource = P.WorkingTree()
         else:
-            self.diffs = await P.load_diff(git, P.CommitDiff(entry.sha))
+            diffs = await P.load_diff(git, P.CommitDiff(entry.sha))
             untracked = await git.try_rev_parse(f"{entry.sha}^3")
             if untracked:
-                self.diffs += await P.load_diff(git, P.CommitDiff(untracked))
+                diffs += await P.load_diff(git, P.CommitDiff(untracked))
             source = P.CommitDiff(entry.sha)
-        for d in self.diffs:
-            files.add_option(Option(f"{d.status} {d.path}", id=d.path))
-        if self.diffs:
-            files.highlighted = 0
-            view.set_diff(source, self.diffs[0])
-        else:
+        files.set_files(source, diffs)
+        if not diffs:
             view.set_diff(None, None, message="Empty")
 
-    @on(OptionList.OptionHighlighted, "#shelf-files")
-    def _file(self, event: OptionList.OptionHighlighted) -> None:
-        diff = next((d for d in self.diffs if d.path == event.option.id), None)
-        view = self.query_one(DiffView)
-        view.set_diff(view.source or P.WorkingTree(), diff)
+    @on(FileList.Selected, "#shelf-files")
+    def _file(self, event: FileList.Selected) -> None:
+        if event.diff is not None:
+            self.query_one(DiffView).set_diff(event.source, event.diff)
 
     def context(self, base: SelectionContext) -> SelectionContext:
         entry = self.selected()
         kwargs: dict[str, Any] = {"screen": "shelf"}
-        files_list = self.query_one("#shelf-files", OptionList)
+        files_list = self.query_one("#shelf-files", FileList)
         if isinstance(entry, SH.Shelf):
             form: dict[str, Any] = {"shelf": entry}
-            if self.screen.focused is files_list and files_list.highlighted is not None:
-                opt = files_list.get_option_at_index(files_list.highlighted)
-                form["shelf_paths"] = [opt.id]
+            if self.screen.focused is files_list and files_list.current is not None:
+                form["shelf_paths"] = [files_list.current.path]
             kwargs.update(focus=Scope.SHELF, form=form)
         elif isinstance(entry, StashEntry):
             kwargs.update(focus=Scope.STASH, stash=entry)

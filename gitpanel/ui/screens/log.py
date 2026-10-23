@@ -10,8 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.timer import Timer
-from textual.widgets import Input, OptionList, Static
-from textual.widgets.option_list import Option
+from textual.widgets import Input, Static
 
 from ...actions.context import FileRef, PatchSelection, Scope, SelectionContext
 from ...git import patch as P
@@ -27,10 +26,11 @@ from ...git.log import (
     load_page,
 )
 from ...git.markers import collect, default_providers
-from ..colors import STATUS_COLOR, C
+from ..colors import C
 from ..widgets.branch_panel import BranchPanel
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
+from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
@@ -58,7 +58,7 @@ class LogView(Vertical):
     LogView #log-bottom { height: 1fr; }
     LogView #log-side { width: 40%; min-width: 20; }
     LogView #log-details { height: 1fr; padding: 0 1; }
-    LogView #log-files { height: 1fr; background: $surface; border: none; }
+    LogView #log-files { height: 1fr; }
     LogView DiffView { height: 1fr; }
     """
 
@@ -101,7 +101,7 @@ class LogView(Vertical):
                     with Vertical(id="log-side"):
                         with VerticalScroll(id="log-details"):
                             yield Static("", id="log-details-text")
-                        yield OptionList(id="log-files", compact=True)
+                        yield FileList(id="log-files")
                     yield Splitter("log.details", "x", minimum=20)
                     yield DiffView(id="log-diff")
 
@@ -247,19 +247,19 @@ class LogView(Vertical):
         session = self.gp.session
         table = self.query_one(CommitTable)
         text = self.query_one("#log-details-text", Static)
-        files = self.query_one("#log-files", OptionList)
+        files = self.query_one("#log-files", FileList)
         diff_view = self.query_one(DiffView)
         selected = table.selected_rows()
         if session is None or not selected:
             text.update("No commits match the filter" if session else "")
-            files.clear_options()
+            files.set_files(None, [])
             diff_view.set_diff(None, None)
             self._detail_sha = None
             self._shown_sha = None
             return
         if len(selected) > 1:
             text.update(f"{len(selected)} commits selected")
-            files.clear_options()
+            files.set_files(None, [])
             diff_view.set_diff(None, None, message="Select a single commit to see its changes")
             self._detail_sha = None
             self._shown_sha = None
@@ -288,18 +288,8 @@ class LogView(Vertical):
         self._diffs = await P.load_diff(git, P.CommitDiff(sha))
         if self._detail_sha != sha:
             return
-        files.clear_options()
-        for d in self._diffs:
-            label = Text()
-            label.append(f"{d.status} ", style=C[STATUS_COLOR.get(d.status, "")])
-            label.append(d.path)
-            if d.status in "RC" and d.old_path:
-                label.append(f"  ← {d.old_path}", style="dim")
-            files.add_option(Option(label, id=d.path))
-        if self._diffs:
-            files.highlighted = 0
-            diff_view.set_diff(P.CommitDiff(sha), self._diffs[0])
-        else:
+        files.set_files(P.CommitDiff(sha), self._diffs)
+        if not self._diffs:
             diff_view.set_diff(None, None, message="No file changes (merge or empty commit)")
         if sha not in self._contains:
             self._contains[sha] = (
@@ -330,12 +320,10 @@ class LogView(Vertical):
         text.update(t)
         self._shown_sha = sha
 
-    @on(OptionList.OptionHighlighted, "#log-files")
-    def _file_highlighted(self, event: OptionList.OptionHighlighted) -> None:
-        if self._detail_sha is None:
-            return
-        diff = next((d for d in self._diffs if d.path == event.option.id), None)
-        self.query_one(DiffView).set_diff(P.CommitDiff(self._detail_sha), diff)
+    @on(FileList.Selected, "#log-files")
+    def _file_highlighted(self, event: FileList.Selected) -> None:
+        if event.diff is not None:
+            self.query_one(DiffView).set_diff(event.source, event.diff)
 
     # -- filters ---------------------------------------------------------------------------
     @on(Input.Submitted)
@@ -388,13 +376,12 @@ class LogView(Vertical):
                     focus=Scope.HUNK,
                     patch=PatchSelection(diff_view.source, (diff_view.diff,), sel),
                 )
-        elif focused is self.query_one("#log-files", OptionList) and self._detail_sha:
-            files = self.query_one("#log-files", OptionList)
-            if files.highlighted is not None:
-                path = files.get_option_at_index(files.highlighted).id or ""
+        elif focused is self.query_one("#log-files", FileList) and self._detail_sha:
+            current = self.query_one("#log-files", FileList).current
+            if current is not None:
                 kwargs.update(
                     focus=Scope.FILE,
-                    files=(FileRef(path, P.CommitDiff(self._detail_sha), "commit"),),
+                    files=(FileRef(current.path, P.CommitDiff(self._detail_sha), "commit"),),
                 )
         return SelectionContext(**{**base.__dict__, **kwargs})
 

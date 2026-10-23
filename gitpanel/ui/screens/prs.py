@@ -16,13 +16,11 @@ from textual.timer import Timer
 from textual.widgets import (
     DataTable,
     Markdown,
-    OptionList,
     Select,
     Static,
     TabbedContent,
     TabPane,
 )
-from textual.widgets.option_list import Option
 
 from ...actions.context import Scope, SelectionContext
 from ...forge.filters import pr_matches
@@ -36,6 +34,7 @@ from ...git.markers import PickedMarkers, RefMarkers, collect
 from ..colors import CHECK_ICON, CI_ICON, C
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
+from ..widgets.file_list import FileList
 from ..widgets.list_table import Col, ListTable, words_match
 from ..widgets.splitter import Splitter
 
@@ -85,7 +84,7 @@ class PRsView(Vertical):
     PRsView #pr-query { width: 22; }
     PRsView TabbedContent { height: 1fr; width: 1fr; }
     PRsView #pr-overview { padding: 0 1; }
-    PRsView #pr-files { width: 26; background: $surface; border: none; }
+    PRsView #pr-files { width: 26; }
     PRsView #pr-thread { height: auto; max-height: 12; padding: 0 1; background: $panel;
                          display: none; }
     PRsView #pr-thread.-shown { display: block; }
@@ -95,7 +94,6 @@ class PRsView(Vertical):
         super().__init__(id="prs-view")
         self.provider: GitHub | None = None
         self.detail: PullRequest | None = None
-        self.diffs: list[P.FileDiff] = []
         self.threads: list[ReviewThread] = []
         self._loaded_tabs: set[str] = set()
         self._timer: Timer | None = None
@@ -147,7 +145,7 @@ class PRsView(Vertical):
                 with TabPane("Commits", id="tab-commits"):
                     yield CommitTable(id="pr-commits")
                 with TabPane("Files", id="tab-files"), Horizontal():
-                    yield OptionList(id="pr-files", compact=True)
+                    yield FileList(id="pr-files")
                     yield Splitter("prs.files", "x", minimum=20)
                     with Vertical():
                         yield DiffView(id="pr-diff")
@@ -388,7 +386,7 @@ class PRsView(Vertical):
         self.query_one("#pr-body", Markdown).update("")
         self.query_one("#pr-conversation", Static).update("")
         self.query_one("#pr-commits", CommitTable).set_rows([], has_more=False)
-        self.query_one("#pr-files", OptionList).clear_options()
+        self.query_one("#pr-files", FileList).set_files(None, [])
         self.query_one("#pr-diff", DiffView).set_diff(None, None)
         self.query_one("#pr-checks-list", ListTable).set_items([])
 
@@ -534,38 +532,28 @@ class PRsView(Vertical):
                 await collect([RefMarkers(), PickedMarkers()], session, [c.sha for c in commits])
             )
         else:
-            self.diffs = await P.load_diff(session.git, P.RangeDiff(base, head))
+            diffs = await P.load_diff(session.git, P.RangeDiff(base, head))
             self.threads = []
-            files = self.query_one("#pr-files", OptionList)
-            files.clear_options()
-            for d in self.diffs:
-                files.add_option(Option(self._file_label(d), id=d.path))
-            if self.diffs:
-                files.highlighted = 0
-                self._show_file(self.diffs[0].path)
+            files = self.query_one("#pr-files", FileList)
+            files.set_files(P.CommitDiff(head), diffs)
             # review threads arrive separately; badge the files and mark lines when they do
             self.threads = await threads_task
             if self.detail is None or self.detail.number != pr.number:
                 return
-            for d in self.diffs:
-                if any(t.path == d.path and not t.resolved for t in self.threads):
-                    files.replace_option_prompt(d.path, self._file_label(d))
+            files.redecorate(self._thread_badge)
             path = self._current_file()
             if path and self.threads:
                 keep = self.query_one("#pr-diff", DiffView).cursor
                 self._show_file(path)
                 self.query_one("#pr-diff", DiffView).cursor = keep
 
-    def _file_label(self, d: P.FileDiff) -> Text:
-        label = Text(
-            f"{d.status} ",
-            style=C.green if d.status == "A" else C.red if d.status == "D" else C.lilac,
-        )
-        label.append(d.path)
+    def _thread_badge(self, d: P.FileDiff) -> Text | None:
         open_threads = sum(t.path == d.path and not t.resolved for t in self.threads)
-        if open_threads:
-            label.append(f"  💬{open_threads}", style=C.amber)
-        return label
+        return Text(f"  💬{open_threads}", style=C.amber) if open_threads else None
+
+    @property
+    def diffs(self) -> list[P.FileDiff]:
+        return self.query_one("#pr-files", FileList).diffs
 
     # -- files & threads ----------------------------------------------------------------------
     def _show_file(self, path: str) -> None:
@@ -580,10 +568,10 @@ class PRsView(Vertical):
             view.set_diff(P.CommitDiff(self.detail.head_sha), diff, message="No changes")
         self._show_thread()
 
-    @on(OptionList.OptionHighlighted, "#pr-files")
-    def _file(self, event: OptionList.OptionHighlighted) -> None:
-        if event.option.id:
-            self._show_file(event.option.id)
+    @on(FileList.Selected, "#pr-files")
+    def _file(self, event: FileList.Selected) -> None:
+        if event.diff is not None:
+            self._show_file(event.diff.path)
 
     @on(DiffView.SelectionChanged, "#pr-diff")
     def _diff_cursor(self) -> None:
@@ -591,10 +579,8 @@ class PRsView(Vertical):
         self.gp.refresh_hints()
 
     def _current_file(self) -> str | None:
-        files = self.query_one("#pr-files", OptionList)
-        if files.highlighted is None:
-            return None
-        return files.get_option_at_index(files.highlighted).id
+        current = self.query_one("#pr-files", FileList).current
+        return current.path if current is not None else None
 
     def _thread_at_cursor(self) -> ReviewThread | None:
         ref = self.query_one("#pr-diff", DiffView).cursor_line_ref()

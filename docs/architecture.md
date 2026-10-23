@@ -64,6 +64,7 @@ gitpanel/
     colors.py                 # the palette (dark/light) — every colour the UI draws; C.<name> at render time
     widgets/                  # DiffView (unified + side-by-side), CommitTable, FileTree, OperationBanner, KeyHints,
                               # ListTable (every table-like list: filter bar, column sort, flexible column)
+                              # FileList (a change's files beside a DiffView: labels, selection)
     screens/                  # commit, log, branches, worktrees, conflicts, history, annotate, shelf, rebase_editor, push, compare
     dialogs.py
 tests/

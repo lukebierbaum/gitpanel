@@ -19,6 +19,7 @@ from ...git.markers import Marker
 from ..colors import C
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
+from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter
 
 if TYPE_CHECKING:
@@ -40,7 +41,9 @@ class CompareView(Vertical):
     CompareView CommitTable { height: 1fr; }
     CompareView #cmp-bottom { height: 1fr; }
     CompareView #cmp-left-list { width: 50%; }
-    CompareView #cmp-details { width: 40%; padding: 0 1; }
+    CompareView #cmp-details { width: 40%; }
+    CompareView #cmp-details-scroll { height: auto; max-height: 50%; padding: 0 1; }
+    CompareView #cmp-files { height: 1fr; border-top: tall $panel; }
     CompareView DiffView { height: 1fr; }
     """
     BINDINGS = [
@@ -74,8 +77,10 @@ class CompareView(Vertical):
                 yield CommitTable(id="cmp-a")
         yield Splitter("compare.lists", "y", minimum=4)
         with Horizontal(id="cmp-bottom"):
-            with VerticalScroll(id="cmp-details"):
-                yield Static("", id="cmp-details-text")
+            with Vertical(id="cmp-details"):
+                with VerticalScroll(id="cmp-details-scroll"):
+                    yield Static("", id="cmp-details-text")
+                yield FileList(id="cmp-files")
             yield Splitter("compare.details", "x", minimum=20)
             yield DiffView(id="cmp-diff")
 
@@ -155,8 +160,10 @@ class CompareView(Vertical):
         rows = table.selected_rows()
         text = self.query_one("#cmp-details-text", Static)
         view = self.query_one(DiffView)
+        files = self.query_one("#cmp-files", FileList)
         if session is None or len(rows) != 1:
             text.update(f"{len(rows)} commits selected" if rows else "")
+            files.set_files(None, [])
             view.set_diff(None, None)
             return
         c = rows[0].commit
@@ -166,10 +173,15 @@ class CompareView(Vertical):
         if c.sha in self.picked:
             t.append("✓ already on the other side (same change)\n", style=C.green)
         diffs = await P.load_diff(session.git, P.CommitDiff(c.sha))
-        for d in diffs:
-            t.append(f"{d.status} {d.path}\n")
         text.update(t)
-        view.set_diff(P.CommitDiff(c.sha), diffs[0] if diffs else None, message="No file changes")
+        files.set_files(P.CommitDiff(c.sha), diffs)
+        if not diffs:
+            view.set_diff(None, None, message="No file changes")
+
+    @on(FileList.Selected, "#cmp-files")
+    def _file(self, event: FileList.Selected) -> None:
+        if event.diff is not None:
+            self.query_one(DiffView).set_diff(event.source, event.diff)
 
     def context(self, base: SelectionContext) -> SelectionContext:
         table = self._focused_table()
