@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import on, work
@@ -16,19 +16,17 @@ from ...git import patch as P
 from ...git.cherry_pick import compare
 from ...git.graph import GraphRow
 from ...git.markers import Marker
+from ..base import ToolWindow
 from ..colors import C
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
 from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter
 
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
-
 PICKED = Marker("picked", "✓ picked", "picked", dims_row=True, order=90)
 
 
-class CompareView(Vertical):
+class CompareView(ToolWindow):
     name_id = "compare"
     stale = False
 
@@ -57,10 +55,6 @@ class CompareView(Vertical):
         self.b: str | None = None
         self.hide_picked = False
         self.picked: set[str] = set()
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -192,7 +186,7 @@ class CompareView(Vertical):
         }
         if self.screen.focused is table and table.rows:
             kwargs["focus"] = Scope.COMMIT
-        return SelectionContext(**{**base.__dict__, **kwargs})
+        return base.with_(**kwargs)
 
     def hint_extras(self) -> list[tuple[str, str]]:
         return [("x", "swap"), ("h", "hide picked"), ("tab", "other side")]

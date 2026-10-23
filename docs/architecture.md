@@ -61,6 +61,7 @@ gitpanel/
     app.py                    # GitPanelApp: owns RepoSession, Registry, Dispatcher; implements Ui
     palette.py                # Textual CommandProvider over the registry
     theme.py                  # "hulk" (default) and "hulk-light" themes: purple primary, green accents
+    base.py                   # ToolWindow / ToolScreen / GpMixin: the tool-window contract and its defaults
     colors.py                 # the palette (dark/light) — every colour the UI draws; C.<name> at render time
     widgets/                  # DiffView (unified + side-by-side), CommitTable, FileTree, OperationBanner, KeyHints,
                               # ListTable (every table-like list: filter bar, column sort, flexible column)

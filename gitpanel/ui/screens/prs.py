@@ -6,7 +6,7 @@ import asyncio
 import contextlib
 import time
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import on, work
@@ -31,15 +31,13 @@ from ...git import patch as P
 from ...git.graph import GraphRow
 from ...git.log import LogFilter, load_page
 from ...git.markers import PickedMarkers, RefMarkers, collect
+from ..base import ToolWindow
 from ..colors import CHECK_ICON, CI_ICON, C
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
 from ..widgets.list_table import Col, ListTable, words_match
 from ..widgets.splitter import Splitter
-
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
 REVIEW = {
     "APPROVED": ("Approved", "ok"),
@@ -73,7 +71,7 @@ def ago(when: datetime | None) -> str:
     return "now"
 
 
-class PRsView(Vertical):
+class PRsView(ToolWindow):
     name_id = "prs"
     stale = True
 
@@ -106,10 +104,6 @@ class PRsView(Vertical):
         self._pending: Timer | None = None
         self._query = "mine"
         self._searched = ""  # text last sent to GitHub as a search (enter in the filter box)
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="pr-main"):
@@ -660,7 +654,7 @@ class PRsView(Vertical):
         if "focus" not in kwargs and pr is not None:
             kwargs["focus"] = Scope.PR
         kwargs["form"] = form
-        return SelectionContext(**{**base.__dict__, **kwargs})
+        return base.with_(**kwargs)
 
     def hint_extras(self) -> list[tuple[str, str]]:
         hints = [h for lt in self.query(ListTable) for h in lt.hints()]

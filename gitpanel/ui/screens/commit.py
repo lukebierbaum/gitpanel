@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from textual import events, on, work
 from textual.app import ComposeResult
@@ -14,15 +14,13 @@ from ...git import commit as C
 from ...git import patch as P
 from ...git.changelists import Changelists
 from ...git.status import status
+from ..base import ToolWindow
 from ..widgets.diff_view import DiffView
 from ..widgets.file_tree import FileTree
 from ..widgets.splitter import Splitter
 
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
-
-class CommitView(Vertical):
+class CommitView(ToolWindow):
     name_id = "commit"
 
     DEFAULT_CSS = """
@@ -47,10 +45,6 @@ class CommitView(Vertical):
         self._history_pos = -1
         self._generation = 0
         self._all_changed: tuple[str, ...] = ()
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="commit-body"):
@@ -201,7 +195,7 @@ class CommitView(Vertical):
                 )
         elif focused is tree:
             kwargs.update(focus=Scope.FILE, files=tuple(tree.focused_refs()))
-        return SelectionContext(**{**base.__dict__, **kwargs})
+        return base.with_(**kwargs)
 
     def hint_extras(self) -> list[tuple[str, str]]:
         focused = self.screen.focused

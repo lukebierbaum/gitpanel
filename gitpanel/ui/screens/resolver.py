@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.segment import Segment
 from rich.style import Style
@@ -14,19 +14,15 @@ from textual.binding import Binding
 from textual.geometry import Size
 from textual.message import Message
 from textual.reactive import reactive
-from textual.screen import Screen
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.widgets import Static
 
 from ...actions.context import Scope, SelectionContext
-from ...actions.registry import Registry
 from ...git import conflicts as CF
+from ..base import ToolScreen
 from ..colors import C
 from ..widgets.key_hints import KeyHints
-
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
 
 @dataclass(frozen=True)
@@ -164,23 +160,20 @@ class ThreeWayView(ScrollView, can_focus=True):
         return Strip(segs).crop_extend(0, width, base)
 
 
-class ResolverScreen(Screen[None]):
+class ResolverScreen(ToolScreen):
     DEFAULT_CSS = """
     ResolverScreen { layout: vertical; }
     ResolverScreen #res-header { height: 2; padding: 0 1; background: $panel; }
     ResolverScreen ThreeWayView { height: 1fr; }
     """
     BINDINGS = [Binding("escape", "close", "Close")]
+    HINT_EXTRAS = [("n/p", "next/prev"), ("esc", "close")]
 
     def __init__(self, path: str) -> None:
         super().__init__()
         self.path = path
         self.model: CF.MergeModel | None = None
         self.labels: CF.Labels | None = None
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         yield Static("", id="res-header")
@@ -193,7 +186,7 @@ class ResolverScreen(Screen[None]):
 
     @work(exclusive=True, group="resolver-load")
     async def load(self) -> None:
-        git = self.gp.session.git  # type: ignore[union-attr]
+        git = self.git
         st = await CF.stages(git, self.path)
         if st.binary or st.ours is None or st.theirs is None:
             self.gp.notify(
@@ -255,11 +248,4 @@ class ResolverScreen(Screen[None]):
         if view and self.model is not None and self.model.chunks:
             kwargs["form"] = {"merge": self.model, "chunk": view.first().current}
             kwargs["focus"] = Scope.CONFLICT
-        return SelectionContext(**{**base.__dict__, **kwargs})
-
-    def show_hints(self, registry: Registry, ctx: SelectionContext) -> None:
-        hints = self.query(KeyHints)
-        if hints:
-            hints.first().show_for(
-                registry, ctx, [("n/p", "next/prev"), ("esc", "close")], screen_only=True
-            )
+        return base.with_(**kwargs)

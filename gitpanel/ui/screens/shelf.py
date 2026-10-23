@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import on, work
@@ -16,16 +16,14 @@ from ...git import patch as P
 from ...git import shelf as SH
 from ...git import stash as ST
 from ...git.models import StashEntry
+from ..base import ToolWindow
 from ..colors import C
 from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter
 
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
-
-class ShelfView(Vertical):
+class ShelfView(ToolWindow):
     name_id = "shelf"
     stale = True
 
@@ -41,10 +39,6 @@ class ShelfView(Vertical):
     def __init__(self) -> None:
         super().__init__(id="shelf-view")
         self.entries: dict[str, SH.Shelf | StashEntry] = {}
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -153,10 +147,7 @@ class ShelfView(Vertical):
             kwargs.update(focus=Scope.SHELF, form=form)
         elif isinstance(entry, StashEntry):
             kwargs.update(focus=Scope.STASH, stash=entry)
-        return SelectionContext(**{**base.__dict__, **kwargs})
-
-    def hint_extras(self) -> list[tuple[str, str]]:
-        return []
+        return base.with_(**kwargs)
 
     def handle_event(self, event: str, data: dict[str, Any]) -> None:
         if event == "shelf.refresh":

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
@@ -14,14 +12,12 @@ from textual.widgets import Input, Label, OptionList
 from textual.widgets.option_list import Option
 
 from ...actions.context import SelectionContext
+from ..base import GpMixin
 from ..colors import C
 from ..widgets.key_hints import pretty_key
 
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
-
-class HelpScreen(ModalScreen[None]):
+class HelpScreen(GpMixin, ModalScreen[None]):
     DEFAULT_CSS = """
     HelpScreen { align: center middle; }
     HelpScreen #help-box { width: 110; max-width: 95%; height: 90%; border: thick $primary;
@@ -34,10 +30,6 @@ class HelpScreen(ModalScreen[None]):
     def __init__(self, ctx: SelectionContext) -> None:
         super().__init__()
         self.ctx = ctx
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="help-box"):

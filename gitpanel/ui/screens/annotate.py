@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.segment import Segment
 from rich.style import Style
@@ -14,19 +14,15 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.geometry import Size
 from textual.reactive import reactive
-from textual.screen import Screen
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 from textual.widgets import Static
 
 from ...actions.context import SelectionContext
-from ...actions.registry import Registry
 from ...git.history import BlameLine, blame
+from ..base import ToolScreen
 from ..colors import C
 from ..widgets.key_hints import KeyHints
-
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
 # age colours: newest green → oldest purple
 AGE_STEPS = 7
@@ -166,21 +162,17 @@ class BlameView(ScrollView, can_focus=True):
         return strip
 
 
-class AnnotateScreen(Screen[None]):
+class AnnotateScreen(ToolScreen):
     DEFAULT_CSS = """
     AnnotateScreen { layout: vertical; }
     AnnotateScreen #ann-header { height: 2; padding: 0 1; background: $panel; }
     AnnotateScreen BlameView { height: 1fr; }
     """
-    BINDINGS = [Binding("escape", "dismiss", "Close")]
+    HINT_EXTRAS = [("v", "select lines"), ("esc", "close")]
 
     def __init__(self, path: str, rev: str | None = None, line: int | None = None) -> None:
         super().__init__()
         self.path, self.rev, self.line = path, rev, line
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         yield Static("", id="ann-header")
@@ -193,7 +185,7 @@ class AnnotateScreen(Screen[None]):
 
     @work(exclusive=True, group="annotate-load")
     async def load(self) -> None:
-        git = self.gp.session.git  # type: ignore[union-attr]
+        git = self.git
         try:
             lines = await blame(git, self.path, self.rev)
         except Exception as e:
@@ -238,11 +230,4 @@ class AnnotateScreen(Screen[None]):
             r = view.range()
             if r:
                 form["start"], form["end"] = r
-        return SelectionContext(**{**base.__dict__, "screen": "annotate", "form": form})
-
-    def show_hints(self, registry: Registry, ctx: SelectionContext) -> None:
-        hints = self.query(KeyHints)
-        if hints:
-            hints.first().show_for(
-                registry, ctx, [("v", "select lines"), ("esc", "close")], screen_only=True
-            )
+        return base.with_(screen="annotate", form=form)

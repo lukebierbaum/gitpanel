@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import events, on, work
@@ -26,6 +26,7 @@ from ...git.log import (
     load_page,
 )
 from ...git.markers import collect, default_providers
+from ..base import ToolWindow
 from ..colors import C
 from ..widgets.branch_panel import BranchPanel
 from ..widgets.commit_table import CommitTable, LogRow, fmt_date
@@ -33,13 +34,10 @@ from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter
 
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
-
 PAGE = 400
 
 
-class LogView(Vertical):
+class LogView(ToolWindow):
     name_id = "log"
     BINDINGS = [
         Binding("left_square_bracket", "toggle_branches", "Branches panel", show=False),
@@ -73,10 +71,6 @@ class LogView(Vertical):
         self._shown_sha: str | None = None  # commit whose details finished rendering
         self._pick_timer: Timer | None = None
         self._contains: dict[str, tuple[list[str], list[str]]] = {}  # sha → (all, remote)
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="log-filters"):
@@ -383,7 +377,7 @@ class LogView(Vertical):
                     focus=Scope.FILE,
                     files=(FileRef(current.path, P.CommitDiff(self._detail_sha), "commit"),),
                 )
-        return SelectionContext(**{**base.__dict__, **kwargs})
+        return base.with_(**kwargs)
 
     def hint_extras(self) -> list[tuple[str, str]]:
         focused = self.screen.focused

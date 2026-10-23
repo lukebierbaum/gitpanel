@@ -2,25 +2,20 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
 from textual.widgets import RichLog, Static
 
 from ...actions.context import SelectionContext
 from ...git.console import CONSOLE, ConsoleEntry
+from ..base import ToolWindow
 from ..colors import C
-
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
 MAX_LINES_SHOWN = 40  # per stream, per entry
 
 
-class ConsoleView(Vertical):
+class ConsoleView(ToolWindow):
     name_id = "console"
     stale = False
 
@@ -41,10 +36,6 @@ class ConsoleView(Vertical):
         self.show_output = True
         self._unsubscribe = None
         self._placeholder = False
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         yield Static("", id="console-header")
@@ -168,10 +159,7 @@ class ConsoleView(Vertical):
         CONSOLE.clear()
 
     def context(self, base: SelectionContext) -> SelectionContext:
-        return SelectionContext(**{**base.__dict__, "screen": "console"})
+        return base.with_(screen="console")
 
     def hint_extras(self) -> list[tuple[str, str]]:
         return [("a", "all/changes only"), ("o", "output"), ("c", "clear")]
-
-    def handle_event(self, event: str, data: dict[str, Any]) -> None:
-        pass

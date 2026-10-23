@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
-from textual.binding import Binding
-from textual.screen import Screen
 from textual.widgets import Static
 
 from ...actions.context import FileRef, Scope, SelectionContext
@@ -16,23 +14,20 @@ from ...actions.registry import Registry
 from ...git import patch as P
 from ...git.graph import GraphRow
 from ...git.history import file_history, selection_history
+from ..base import ToolScreen
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.key_hints import KeyHints
 from ..widgets.splitter import Splitter
 
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
-
-class HistoryScreen(Screen[None]):
+class HistoryScreen(ToolScreen):
     DEFAULT_CSS = """
     HistoryScreen { layout: vertical; }
     HistoryScreen #hist-header { height: 1; padding: 0 1; background: $panel; }
     HistoryScreen CommitTable { height: 40%; }
     HistoryScreen DiffView { height: 1fr; }
     """
-    BINDINGS = [Binding("escape", "dismiss", "Close")]
 
     def __init__(
         self, path: str, start: int | None = None, end: int | None = None, rev: str | None = None
@@ -40,10 +35,6 @@ class HistoryScreen(Screen[None]):
         super().__init__()
         self.path, self.start, self.end, self.rev = path, start, end, rev
         self.paths: dict[str, str] = {}  # sha → path at that revision
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         yield Static("", id="hist-header")
@@ -58,7 +49,7 @@ class HistoryScreen(Screen[None]):
 
     @work(exclusive=True, group="history-load")
     async def load(self) -> None:
-        git = self.gp.session.git  # type: ignore[union-attr]
+        git = self.git
         title = Text()
         if self.start is not None and self.end is not None:
             commits = await selection_history(git, self.path, self.start, self.end)
@@ -93,7 +84,7 @@ class HistoryScreen(Screen[None]):
             return
         sha = rows[0].commit.sha
         path = self.paths.get(sha, self.path)
-        git = self.gp.session.git  # type: ignore[union-attr]
+        git = self.git
         diffs = await P.load_diff(git, P.CommitDiff(sha), [path])
         diff = next((d for d in diffs if d.path == path), diffs[0] if diffs else None)
         view.set_diff(P.CommitDiff(sha), diff, message="No changes to this file")
@@ -101,7 +92,7 @@ class HistoryScreen(Screen[None]):
     def context(self, base: SelectionContext) -> SelectionContext:
         table = self.query(CommitTable)
         if not table:
-            return SelectionContext(**{**base.__dict__, "screen": "history"})
+            return base.with_(screen="history")
         t = table.first()
         commits = tuple(t.selected_commits())
         kwargs: dict[str, Any] = {"screen": "history", "commits": commits}
@@ -121,12 +112,12 @@ class HistoryScreen(Screen[None]):
                 kwargs.update(
                     focus=Scope.HUNK, patch=PatchSelection(focused.source, (focused.diff,), sel)
                 )
-        return SelectionContext(**{**base.__dict__, **kwargs})
+        return base.with_(**kwargs)
 
     def show_hints(self, registry: Registry, ctx: SelectionContext) -> None:
         hints = self.query(KeyHints)
         if hints:
-            file_ctx = SelectionContext(**{**ctx.__dict__, "focus": Scope.FILE})
+            file_ctx = ctx.with_(focus=Scope.FILE)
             items = registry.available(ctx) + [
                 a for a in registry.available(file_ctx) if a.id.startswith("file.")
             ]

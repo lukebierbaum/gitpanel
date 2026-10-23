@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any, Literal
 
@@ -64,6 +64,10 @@ class SelectionContext:
     stash: StashEntry | None = None
     operation: OperationState | None = None
     form: Mapping[str, Any] = field(default_factory=dict)  # screen inputs, e.g. commit message
+
+    def with_(self, **changes: Any) -> SelectionContext:
+        """A copy with some fields changed (how screens add their selection to the base)."""
+        return replace(self, **changes)
 
     def placeholders(self) -> dict[str, str]:
         """Values for {placeholders} in confirmations and custom commands."""

@@ -2,24 +2,19 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import on
 from textual.app import ComposeResult
-from textual.binding import Binding
-from textual.screen import Screen
 from textual.widgets import DataTable, Static
 
 from ...actions.context import SelectionContext
-from ...actions.registry import Registry
 from ...git.journal import JournalEntry
+from ..base import ToolScreen
 from ..colors import C
 from ..widgets.key_hints import KeyHints
 from ..widgets.list_table import Col, ListTable
-
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
 
 def describe_refs(e: JournalEntry) -> Text:
@@ -58,19 +53,14 @@ def _state(e: JournalEntry) -> Text:
     return state
 
 
-class JournalScreen(Screen[None]):
+class JournalScreen(ToolScreen):
     DEFAULT_CSS = """
     JournalScreen { layout: vertical; }
     JournalScreen #jr-header { height: 1; padding: 0 1; background: $panel; }
     """
-    BINDINGS = [Binding("escape", "dismiss", "Close")]
 
     def __init__(self) -> None:
         super().__init__()
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         yield Static("", id="jr-header")
@@ -142,10 +132,7 @@ class JournalScreen(Screen[None]):
         selected = lists.first().selected if lists else None
         if selected is not None:
             form["journal_entry"] = selected.id
-        return SelectionContext(**{**base.__dict__, "screen": "journal", "form": form})
+        return base.with_(screen="journal", form=form)
 
-    def show_hints(self, registry: Registry, ctx: SelectionContext) -> None:
-        hints = self.query(KeyHints)
-        if hints:
-            extras = [*self.query_one(ListTable).hints(), ("esc", "close")]
-            hints.first().show_for(registry, ctx, extras, screen_only=True)
+    def hint_extras(self) -> list[tuple[str, str]]:
+        return [*self.query_one(ListTable).hints(), ("esc", "close")]

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import events, on, work
@@ -14,15 +14,12 @@ from textual.widgets import Input, Label, OptionList
 from textual.widgets.option_list import Option
 
 from ...actions.context import Scope, SelectionContext
-from ...actions.registry import Registry
 from ...git import refs as R
 from ...git import tags as T
 from ...git.models import Ref
+from ..base import GpMixin, ScreenHints
 from ..colors import C
 from ..widgets.key_hints import KeyHints
-
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
 
 def _matches(query: str, name: str) -> bool:
@@ -39,7 +36,7 @@ def _matches(query: str, name: str) -> bool:
     return True
 
 
-class BranchesPopup(ModalScreen[None]):
+class BranchesPopup(GpMixin, ScreenHints, ModalScreen[None]):
     DEFAULT_CSS = """
     BranchesPopup { align: center top; background: $background 40%; }
     BranchesPopup #branches-box {
@@ -52,15 +49,13 @@ class BranchesPopup(ModalScreen[None]):
     BranchesPopup KeyHints { background: $panel; }
     """
     BINDINGS = [Binding("escape", "dismiss", "Close")]
+    # only its own actions in the hint bar (plain letters go to the search box)
+    HINT_EXTRAS = [("alt+enter", "more actions"), ("esc", "close")]
 
     def __init__(self) -> None:
         super().__init__()
         self._refs: dict[str, Any] = {}
         self._data: dict[str, Any] = {}
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="branches-box"):
@@ -194,16 +189,7 @@ class BranchesPopup(ModalScreen[None]):
         kwargs: dict[str, Any] = {"screen": "branches"}
         if ref is not None:
             kwargs.update(focus=Scope.BRANCH, refs=(ref,))
-        return SelectionContext(**{**base.__dict__, **kwargs})
-
-    def show_hints(self, registry: Registry, ctx: SelectionContext) -> None:
-        hints = self.query(KeyHints)
-        if not hints:
-            return
-        # popup: only its own actions (plain letters go to the search box)
-        hints.first().show_for(
-            registry, ctx, [("alt+enter", "more actions"), ("esc", "close")], screen_only=True
-        )
+        return base.with_(**kwargs)
 
     def refresh_hints(self) -> None:
         if self.gp.session is not None and self.is_current:

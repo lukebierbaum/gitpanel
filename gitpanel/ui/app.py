@@ -26,6 +26,7 @@ from ..git.operations import OperationState, detect
 from ..git.runner import GitError
 from ..git.session import ChangeKind, RepoSession
 from ..git.status import status
+from .base import ToolWindow
 from .colors import CI_ICON, C
 from .dialogs import (
     ChooseDialog,
@@ -57,8 +58,6 @@ from .widgets.branch_panel import BranchPanel
 from .widgets.diff_view import DiffView
 from .widgets.key_hints import KeyHints, pretty_key
 from .widgets.operation_banner import OperationBanner
-
-View = CommitView | LogView | WorktreesView | CompareView | ShelfView | ConsoleView | PRsView
 
 
 class Header(Static):
@@ -181,20 +180,12 @@ class GitPanelApp(App[None]):
             self.notify(f"config: {err}", severity="warning", timeout=8)
 
     @property
-    def view(self) -> View:
+    def view(self) -> ToolWindow:
         current = self.query_one(ContentSwitcher).current or "commit-view"
-        return self.query_one(f"#{current}")  # type: ignore[return-value]
+        return self.query_one(f"#{current}", ToolWindow)
 
-    def _views(self) -> list[View]:
-        return [
-            self.query_one(CommitView),
-            self.query_one(LogView),
-            self.query_one(WorktreesView),
-            self.query_one(CompareView),
-            self.query_one(ShelfView),
-            self.query_one(ConsoleView),
-            self.query_one(PRsView),
-        ]
+    def _views(self) -> list[ToolWindow]:
+        return list(self.query_one(ContentSwitcher).query_children(ToolWindow))
 
     def _context_screen(self) -> Any | None:
         """The screen whose selection actions apply to: a tool popup or the base screen."""
@@ -442,8 +433,8 @@ class GitPanelApp(App[None]):
             self.view.handle_event("open", kwargs)
         self.query_one(Tabs).active = f"tab-{name}"
         view = self.view
-        if getattr(view, "stale", True):
-            view.stale = False  # type: ignore[union-attr]
+        if view.stale:
+            view.stale = False
             view.reload()
         view.focus_default()
         self.refresh_hints()

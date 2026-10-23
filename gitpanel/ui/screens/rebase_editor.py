@@ -2,24 +2,20 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.screen import Screen
 from textual.widgets import DataTable, Static
 
 from ...actions.context import SelectionContext
-from ...actions.registry import Registry
 from ...git import scripted_rebase as SR
 from ...git.log import commit_details
+from ..base import ToolScreen
 from ..colors import C
 from ..widgets.key_hints import KeyHints
-
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
 ACTION_STYLE = {  # colour names
     "pick": "green",
@@ -31,7 +27,7 @@ ACTION_STYLE = {  # colour names
 }
 
 
-class RebaseEditorScreen(Screen[None]):
+class RebaseEditorScreen(ToolScreen):
     DEFAULT_CSS = """
     RebaseEditorScreen { layout: vertical; }
     RebaseEditorScreen #rb-header { height: auto; padding: 0 1; background: $panel; }
@@ -48,16 +44,13 @@ class RebaseEditorScreen(Screen[None]):
         Binding("alt+down,J", "move(1)", "Move down"),
         Binding("escape", "cancel", "Cancel"),
     ]
+    HINT_EXTRAS = [("p r e s f d", "set action"), ("alt+↑↓", "move"), ("esc", "cancel")]
 
     def __init__(self, base: str | None, todo: list[SR.TodoItem]) -> None:
         super().__init__()
         self.base = base
         self.todo = [SR.TodoItem(t.action, t.sha, t.subject, t.arg) for t in todo]
         self.messages: dict[str, str] = {}
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         yield Static("", id="rb-header")
@@ -165,14 +158,4 @@ class RebaseEditorScreen(Screen[None]):
                 if last != item.sha:
                     messages[last] = messages.pop(item.sha or "")
         form = {"todo": tuple(self.todo), "base": self.base, "messages": messages}
-        return SelectionContext(**{**base.__dict__, "screen": "rebase", "form": form})
-
-    def show_hints(self, registry: Registry, ctx: SelectionContext) -> None:
-        hints = self.query(KeyHints)
-        if hints:
-            hints.first().show_for(
-                registry,
-                ctx,
-                [("p r e s f d", "set action"), ("alt+↑↓", "move"), ("esc", "cancel")],
-                screen_only=True,
-            )
+        return base.with_(screen="rebase", form=form)

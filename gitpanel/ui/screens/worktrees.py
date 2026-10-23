@@ -4,22 +4,19 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
-from textual.containers import Vertical
 from textual.widgets import DataTable, Static
 
 from ...actions.context import Scope, SelectionContext
 from ...git import worktrees as W
 from ...git.session import Worktree
+from ..base import ToolWindow
 from ..colors import C
 from ..widgets.list_table import Col, ListTable, words_match
-
-if TYPE_CHECKING:
-    from ..app import GitPanelApp
 
 
 def _haystack(wt: Worktree, s: W.WorktreeSummary) -> str:
@@ -44,7 +41,7 @@ def _haystack(wt: Worktree, s: W.WorktreeSummary) -> str:
 Item = tuple[Worktree, W.WorktreeSummary]
 
 
-class WorktreesView(Vertical):
+class WorktreesView(ToolWindow):
     name_id = "worktrees"
     stale = True
 
@@ -58,10 +55,6 @@ class WorktreesView(Vertical):
     def __init__(self) -> None:
         super().__init__(id="worktrees-view")
         self._active: Path | None = None
-
-    @property
-    def gp(self) -> GitPanelApp:
-        return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
         yield ListTable[Item](
@@ -200,7 +193,7 @@ class WorktreesView(Vertical):
         kwargs: dict[str, Any] = {"screen": "worktrees", "worktree": wt}
         if focused is self.query_one(DataTable) and wt is not None:
             kwargs["focus"] = Scope.WORKTREE
-        return SelectionContext(**{**base.__dict__, **kwargs})
+        return base.with_(**kwargs)
 
     def hint_extras(self) -> list[tuple[str, str]]:
         return self.listing.hints()
