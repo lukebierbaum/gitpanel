@@ -16,6 +16,7 @@ from ...git import worktrees as W
 from ...git.session import Worktree
 from ..base import ToolWindow
 from ..colors import C
+from ..fmt import ahead_behind, branch_or_detached
 from ..widgets.list_table import Col, ListTable, words_match
 
 
@@ -110,9 +111,13 @@ class WorktreesView(ToolWindow):
         def branch(item: Item) -> Text:
             wt, _ = item
             return Text(
-                wt.branch_short or f"detached {wt.head[:8] if wt.head else ''}",
+                branch_or_detached(wt.branch_short, wt.head),
                 style=f"bold {C.green}" if self._is_active(wt) else "",
             )
+
+        def sync(item: Item) -> str:
+            _, s = item
+            return ahead_behind(s.ahead, s.behind) if s.upstream else ""
 
         def dirt(item: Item) -> int:
             _, s = item
@@ -128,7 +133,7 @@ class WorktreesView(ToolWindow):
                 sort=lambda item: (item[0].branch_short or "~").casefold()),
             Col("changes", "Changes", 16, changes, sort=dirt, descending_first=True),
             Col("sync", "↑↓", 9,
-                lambda item: f"↑{item[1].ahead} ↓{item[1].behind}" if item[1].upstream else "",
+                sync,
                 sort=lambda item: item[1].ahead + item[1].behind, descending_first=True),
             Col("state", "State", 16, state, sort=state),
             Col("path", "Path", None, lambda item: str(item[0].path),
@@ -171,7 +176,7 @@ class WorktreesView(ToolWindow):
         if wt.branch_short:
             t.append(f" on {wt.branch_short}")
         if s.upstream:
-            t.append(f"  tracking {s.upstream} (↑{s.ahead} ↓{s.behind})", style="dim")
+            t.append(f"  tracking {s.upstream} ({ahead_behind(s.ahead, s.behind)})", style="dim")
         t.append("\n")
         if s.dirty:
             t.append(

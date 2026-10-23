@@ -28,8 +28,9 @@ from ...git.log import (
 from ...git.markers import collect, default_providers
 from ..base import ToolWindow
 from ..colors import C
+from ..fmt import fmt_date
 from ..widgets.branch_panel import BranchPanel
-from ..widgets.commit_table import CommitTable, LogRow, fmt_date
+from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter

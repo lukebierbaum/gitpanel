@@ -18,6 +18,7 @@ from textual.strip import Strip
 
 from ...git.patch import DiffSource, FileDiff, Selection
 from ..colors import C
+from ..fmt import plural
 
 GUTTER = 12  # "12345 12345 "
 SPLIT_GUTTER = 7  # "12345 +" on each side of a side-by-side row
@@ -329,7 +330,7 @@ class DiffView(ScrollView, can_focus=True):
         if self.anchor is not None:
             sel = self.selection()
             n = len(sel.lines.get(self.diff.path, ())) if sel else 0
-            return f"{n} line{'s' if n != 1 else ''}"
+            return plural(n, "line")
         return "hunk"
 
     # -- actions ----------------------------------------------------------------

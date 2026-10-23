@@ -14,6 +14,7 @@ from ...git import patch as P
 from ...git.graph import GraphRow
 from ...git.history import file_history, selection_history
 from ..base import ToolScreen
+from ..fmt import plural
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.key_hints import KeyHints
@@ -60,7 +61,7 @@ class HistoryScreen(ToolScreen):
             title = f"History of {self.path}"
         self.query_one("#hist-header", TitleBar).set(
             title,
-            f"{len(commits)} revision(s)",
+            plural(len(commits), "revision"),
             keys=[("alt+a", "annotate"), ("G", "get"), ("C", "cherry-pick"), ("esc", "close")],
         )
         rows = [LogRow(c, GraphRow(c.sha, 0, (("●", 0),))) for c in commits]

@@ -11,6 +11,7 @@ from ...actions.context import SelectionContext
 from ...git.console import CONSOLE, ConsoleEntry
 from ..base import ToolWindow
 from ..colors import C
+from ..fmt import fmt_duration, fmt_time
 from ..widgets.title_bar import TitleBar
 
 MAX_LINES_SHOWN = 40  # per stream, per entry
@@ -111,7 +112,7 @@ class ConsoleView(ToolWindow):
 
     def _format_entry(self, e: ConsoleEntry) -> Text:
         t = Text()
-        t.append(e.started.strftime("%H:%M:%S "), style="dim")
+        t.append(fmt_time(e.started) + " ", style="dim")
         if e.cancelled:
             mark, style = "⊘", "dim"
         elif e.ok:
@@ -123,7 +124,7 @@ class ConsoleView(ToolWindow):
         t.append(e.command, style="bold" if not e.read_only else "")
         meta = []
         if e.duration is not None:
-            meta.append(f"{e.duration * 1000:.0f} ms" if e.duration < 1 else f"{e.duration:.1f} s")
+            meta.append(fmt_duration(e.duration))
         if e.returncode not in (0, None):
             meta.append(f"exit {e.returncode}")
         if e.cancelled:

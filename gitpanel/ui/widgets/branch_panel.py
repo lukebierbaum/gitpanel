@@ -17,6 +17,7 @@ from textual.widgets.tree import TreeNode
 from ...git.models import Ref
 from ...git.refs import BranchRef
 from ..colors import C
+from ..fmt import ahead_behind
 
 Kind = Literal["all", "head", "ref", "group"]
 
@@ -174,7 +175,7 @@ class BranchPanel(Tree[PanelItem]):
             if wt is not None and wt.resolve() != self._data.get("active"):
                 t.append(" ⎇", style=C.teal)
             if ref.ahead or ref.behind:
-                t.append(f" ↑{ref.ahead}↓{ref.behind}", style="dim")
+                t.append(f" {ahead_behind(ref.ahead, ref.behind)}", style="dim")
             if ref.is_local and self._data.get("has_remotes"):
                 if ref.gone:
                     t.append(" upstream gone", style="dim italic")

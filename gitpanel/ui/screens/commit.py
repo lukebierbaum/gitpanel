@@ -15,6 +15,7 @@ from ...git import patch as P
 from ...git.changelists import Changelists
 from ...git.status import status
 from ..base import ToolWindow
+from ..fmt import plural
 from ..widgets.diff_view import DiffView
 from ..widgets.file_tree import FileTree
 from ..widgets.splitter import Splitter
@@ -126,7 +127,7 @@ class CommitView(ToolWindow):
         if ref is None:
             refs = tree.focused_refs()
             if refs:
-                title.set(f"{len(refs)} file{'s' if len(refs) != 1 else ''}")
+                title.set(plural(len(refs), "file"))
                 view.set_diff(None, None, message="Select a file to see its changes")
             else:
                 title.update("")

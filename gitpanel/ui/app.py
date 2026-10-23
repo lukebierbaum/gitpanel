@@ -37,6 +37,7 @@ from .dialogs import (
     PromptDialog,
     TextDialog,
 )
+from .fmt import ahead_behind, branch_or_detached
 from .keys import alt_equivalent
 from .palette import RegistryCommands
 from .screens.annotate import AnnotateScreen
@@ -232,9 +233,9 @@ class GitPanelApp(App[None]):
         t.append("gitpanel ", style="bold")
         t.append(f" {self.session.common_dir.parent.name} ", style=f"bold {C.ink} on {C.green}")
         t.append("  ⎇ ")
-        t.append(branch or f"detached @ {head[:8] if head else 'unborn'}", style=f"bold {C.green}")
+        t.append(branch_or_detached(branch, head), style=f"bold {C.green}")
         if upstream:
-            t.append(f"  ↑{ahead} ↓{behind}", style="dim")
+            t.append(f"  {ahead_behind(ahead, behind)}", style="dim")
         if not wt.is_main:
             t.append(f"   worktree: {wt.path}", style="italic")
         badge_branch, pr, _ = self._pr_badge

@@ -21,6 +21,7 @@ from ...actions.context import SelectionContext
 from ...git.history import BlameLine, blame
 from ..base import ToolScreen
 from ..colors import C
+from ..fmt import fmt_day
 from ..widgets.key_hints import KeyHints
 from ..widgets.title_bar import TitleBar
 
@@ -136,7 +137,7 @@ class BlameView(ScrollView, can_focus=True):
             gutter = "  not committed yet          " if first_of_block else " " * 29
             gstyle = Style(color=C.amber, italic=True)
         elif first_of_block:
-            date = ln.time.astimezone().strftime("%Y-%m-%d") if ln.time else ""
+            date = fmt_day(ln.time)
             gutter = f" {ln.sha[:8]} {ln.author[:8]:<8} {date} "
             gstyle = Style(color=age_color(ln.time, self._newest, self._oldest))
         else:

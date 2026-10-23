@@ -19,6 +19,7 @@ from ...git import tags as T
 from ...git.models import Ref
 from ..base import GpMixin, ScreenHints
 from ..colors import C
+from ..fmt import ahead_behind
 from ..widgets.key_hints import KeyHints
 
 
@@ -143,7 +144,7 @@ class BranchesPopup(GpMixin, ScreenHints, ModalScreen[None]):
         if wt is not None and wt.resolve() != self._data.get("active"):
             t.append(f"  ⎇ {wt.name}", style=f"italic {C.teal}")
         if ref.ahead or ref.behind:
-            t.append(f"  ↑{ref.ahead} ↓{ref.behind}", style=C.purple)
+            t.append(f"  {ahead_behind(ref.ahead, ref.behind)}", style=C.purple)
         if ref.gone:
             t.append("  upstream gone", style="dim italic")
         elif ref.upstream_short:

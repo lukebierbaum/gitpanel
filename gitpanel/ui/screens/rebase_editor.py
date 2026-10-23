@@ -15,6 +15,7 @@ from ...git import scripted_rebase as SR
 from ...git.log import commit_details
 from ..base import ToolScreen
 from ..colors import C
+from ..fmt import plural
 from ..widgets.key_hints import KeyHints
 from ..widgets.title_bar import TitleBar
 
@@ -87,7 +88,7 @@ class RebaseEditorScreen(ToolScreen):
         except SR.RebaseError as e:
             problem = Text(f"⚠ {e}", style=C.fail)
         self.query_one("#rb-header", TitleBar).set(
-            f"Rebasing {len(self.todo)} commit(s) of {branch}",
+            f"Rebasing {plural(len(self.todo), 'commit')} of {branch}",
             f"onto {self.base[:8] if self.base else 'root'} · oldest first",
             keys=[
                 ("p r e s f d", "pick reword edit squash fixup drop"),

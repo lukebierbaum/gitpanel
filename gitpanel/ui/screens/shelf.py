@@ -18,6 +18,7 @@ from ...git import stash as ST
 from ...git.models import StashEntry
 from ..base import ToolWindow
 from ..colors import C
+from ..fmt import fmt_date, plural
 from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter
@@ -75,9 +76,7 @@ class ShelfView(ToolWindow):
             oid = f"shelf:{s.id}"
             self.entries[oid] = s
             t = Text(f"  {s.name}")
-            t.append(
-                f"  {len(s.paths)} file(s) · {s.created.astimezone():%Y-%m-%d %H:%M}", style="dim"
-            )
+            t.append(f"  {plural(len(s.paths), 'file')} · {fmt_date(s.created)}", style="dim")
             ol.add_option(Option(t, id=oid))
         ol.add_option(Option(Text("Stashes", style=f"bold {C.purple}"), disabled=True))
         if not stashes:

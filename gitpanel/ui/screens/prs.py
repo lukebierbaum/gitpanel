@@ -33,6 +33,7 @@ from ...git.log import LogFilter, load_page
 from ...git.markers import PickedMarkers, RefMarkers, collect
 from ..base import ToolWindow
 from ..colors import CHECK_ICON, CI_ICON, C
+from ..fmt import ago, fmt_duration
 from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
@@ -54,21 +55,6 @@ DETAIL_TTL = 60.0  # cached details younger than this aren't fetched again on hi
 CI_ORDER = {"failure": 0, "pending": 1, "success": 2, "none": 3}
 REVIEW_ORDER = {"CHANGES_REQUESTED": 0, "REVIEW_REQUIRED": 1, "APPROVED": 2, "": 3}
 CHECK_ORDER = {"failure": 0, "cancelled": 1, "pending": 2, "success": 3, "neutral": 4, "skipped": 5}
-
-
-def _duration(c: Check) -> str:
-    dur = c.duration
-    return f"{int(dur // 60)}m{int(dur % 60):02d}s" if dur is not None else ""
-
-
-def ago(when: datetime | None) -> str:
-    if when is None:
-        return ""
-    s = (datetime.now(UTC) - when).total_seconds()
-    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
-        if s >= size:
-            return f"{int(s // size)}{unit}"
-    return "now"
 
 
 class PRsView(ToolWindow):
@@ -172,7 +158,7 @@ class PRsView(ToolWindow):
                                 "time",
                                 "Time",
                                 8,
-                                lambda ic: _duration(ic[1]),
+                                lambda ic: fmt_duration(ic[1].duration),
                                 sort=lambda ic: ic[1].duration or 0.0,
                                 descending_first=True,
                             ),

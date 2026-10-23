@@ -13,6 +13,7 @@ from ...actions.context import SelectionContext
 from ...git.journal import JournalEntry
 from ..base import ToolScreen
 from ..colors import C
+from ..fmt import fmt_stamp
 from ..widgets.key_hints import KeyHints
 from ..widgets.list_table import Col, ListTable
 from ..widgets.title_bar import TitleBar
@@ -71,7 +72,7 @@ class JournalScreen(ToolScreen):
                     "when",
                     "When",
                     17,
-                    lambda e: e.when.astimezone().strftime("%m-%d %H:%M:%S"),
+                    lambda e: fmt_stamp(e.when),
                     sort=lambda e: e.when,
                     descending_first=True,
                 ),

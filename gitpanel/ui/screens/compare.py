@@ -18,7 +18,8 @@ from ...git.graph import GraphRow
 from ...git.markers import Marker
 from ..base import ToolWindow
 from ..colors import C
-from ..widgets.commit_table import CommitTable, LogRow, fmt_date
+from ..fmt import fmt_date
+from ..widgets.commit_table import CommitTable, LogRow
 from ..widgets.diff_view import DiffView
 from ..widgets.file_list import FileList
 from ..widgets.splitter import Splitter

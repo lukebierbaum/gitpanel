@@ -8,6 +8,7 @@ from textual.message import Message
 from textual.widgets import Button, Label
 
 from ...git.operations import OperationState
+from ..fmt import plural
 
 
 class OperationBanner(Horizontal):
@@ -40,7 +41,7 @@ class OperationBanner(Horizontal):
             return
         text = state.label
         if state.conflicts:
-            text += f" — {state.conflicts} conflict{'s' if state.conflicts != 1 else ''} to resolve"
+            text += f" — {plural(state.conflicts, 'conflict')} to resolve"
         elif state.kind.value != "bisect":
             text += " — no conflicts left, ready to continue"
         self.query_one("#op-label", Label).update(text)

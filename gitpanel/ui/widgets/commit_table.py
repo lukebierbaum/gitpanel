@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 
 from rich.segment import Segment
 from rich.style import Style
@@ -20,6 +19,7 @@ from ...git.graph import GraphRow
 from ...git.markers import Marker
 from ...git.models import Commit
 from ..colors import C
+from ..fmt import fmt_date
 
 # marker kind → (fg, bg, bold, italic) colour names; resolved per theme in marker_style()
 MARKER_LOOK = {
@@ -63,10 +63,6 @@ class LogRow:
     @property
     def is_head(self) -> bool:
         return any(m.kind == "head" or m.label == "HEAD" for m in self.markers)
-
-
-def fmt_date(d: datetime | None) -> str:
-    return d.astimezone().strftime("%Y-%m-%d %H:%M") if d else ""
 
 
 class CommitTable(ScrollView, can_focus=True):
