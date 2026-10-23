@@ -1,8 +1,8 @@
 """Unified diff view with hunk and line selection (Line API, scales to large diffs).
 
 Unchanged stretches the diff leaves out show as `⋯ N unchanged lines` rows: `enter` or a
-click expands one, `f` shows the whole file. The text for them is read in the background
-(`patch.unchanged_text`) whenever a diff is shown."""
+click expands one (its `⌃` row folds it again), `f` shows the whole file. The text for
+them is read in the background (`patch.unchanged_text`) whenever a diff is shown."""
 
 from __future__ import annotations
 
@@ -29,7 +29,8 @@ SPLIT_GUTTER = 7  # "12345 +" on each side of a side-by-side row
 
 @dataclass(frozen=True)
 class Row:
-    kind: Literal["info", "hunk", "line", "gap"]  # gap: hidden unchanged lines (line = gap no.)
+    # gap: hidden unchanged lines; fold: header of an expanded gap (both: line = gap number)
+    kind: Literal["info", "hunk", "line", "gap", "fold"]
     text: str
     hunk: int = -1
     line: int = -1
@@ -145,11 +146,13 @@ def build_rows(
         first, last, offset = gaps[g]
         if last < first:
             return
+        count = last - first + 1
         if content is not None and (full or g in expanded):
+            if not full:  # a handle to fold the lines away again
+                rows.append(Row("fold", f"⌃ {plural(count, 'unchanged line')}", line=g))
             for n in range(first, min(last, len(content)) + 1):
                 rows.append(Row("line", _plain(content[n - 1]), old_no=n + offset, new_no=n))
             return
-        count = last - first + 1
         rows.append(Row("gap", f"⋯ {plural(count, 'unchanged line')}", line=g))
 
     for hi, h in enumerate(diff.hunks):
@@ -350,22 +353,39 @@ class DiffView(CursorView):
         if at is not None:
             self.cursor = min(at, len(self.rows) - 1)
 
+    def collapse_gap(self, gap: int) -> None:
+        """Fold an expanded gap back into its `⋯` row."""
+        at = next((i for i, r in enumerate(self.rows) if r.kind == "fold" and r.line == gap), None)
+        self._expanded.discard(gap)
+        self._rebuild()
+        if at is not None:
+            self.cursor = min(at, len(self.rows) - 1)
+
+    def _toggle_gap_at(self, row: int) -> bool:
+        r = self.rows[row] if 0 <= row < len(self.rows) else None
+        if r is not None and r.kind == "gap":
+            self.expand_gap(r.line)
+        elif r is not None and r.kind == "fold":
+            self.collapse_gap(r.line)
+        else:
+            return False
+        return True
+
     def action_toggle_full(self) -> None:
         self.full_file = not self.full_file
+        if not self.full_file:
+            self._expanded.clear()  # back to just the changes
         self._rebuild(keep_cursor=True)
         self.notify("Whole file" if self.full_file else "Changes only", timeout=2)
 
     def on_key(self, event: events.Key) -> None:
-        # enter on a `⋯` row opens it; anywhere else enter keeps its usual meaning
-        if event.key == "enter" and self.rows and self.rows[self.cursor].kind == "gap":
+        # enter on a `⋯` / `⌃` row opens / folds it; anywhere else enter keeps its usual meaning
+        if event.key == "enter" and self._toggle_gap_at(self.cursor):
             event.stop()
             event.prevent_default()
-            self.expand_gap(self.rows[self.cursor].line)
 
     def on_click(self, event: events.Click) -> None:
-        row = event.y + self.scroll_offset.y
-        if 0 <= row < len(self.rows) and self.rows[row].kind == "gap":
-            self.expand_gap(self.rows[row].line)
+        self._toggle_gap_at(event.y + self.scroll_offset.y)
 
     def _split_halves(self, width: int) -> tuple[int, int]:
         """Widths of the left and right side of a side-by-side row."""
@@ -496,7 +516,7 @@ class DiffView(CursorView):
             text_style = style("diff-view--info")
         elif row.kind == "hunk":
             text_style = style("diff-view--hunk")
-        elif row.kind == "gap":
+        elif row.kind in ("gap", "fold"):
             text_style = style("diff-view--gap")
         elif row.marker == "+":
             text_style = style("diff-view--added")

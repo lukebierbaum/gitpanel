@@ -108,7 +108,7 @@ Panes can be resized by dragging the thin dividers between them — including th
 | `space` | stage / unstage the file, group, hunk under the cursor, or selected lines |
 | `v`, `shift+↑↓` | select lines in the diff, then `space` |
 | `s` | toggle side-by-side diff (`←`/`→` scroll long lines) |
-| `enter` on `⋯ N unchanged lines` | show the lines a diff leaves out (or click it) |
+| `enter` on `⋯ N unchanged lines` | show the lines a diff leaves out (or click it); `enter` on its `⌃` row hides them again |
 | `f` | whole file / changes only |
 | `n` / `p` | next / previous change |
 | `a` / `A` | stage all / unstage all |

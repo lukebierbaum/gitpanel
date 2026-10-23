@@ -115,6 +115,14 @@ async def test_hidden_unchanged_lines_expand_and_whole_file(repo):
         await pilot.press("enter")
         await settle(pilot, app)
         assert [r.text for r in diff.rows if r.kind == "gap"] == gaps[:1] + gaps[2:]
+        fold = diff.rows[diff.cursor]  # the expanded lines keep a handle to fold them again
+        assert (fold.kind, fold.text) == ("fold", "⌃ 19 unchanged lines")
+        await pilot.press("enter")
+        await settle(pilot, app)
+        assert [r.text for r in diff.rows if r.kind == "gap"] == gaps
+        await pilot.press("enter")  # open it again
+        await settle(pilot, app)
+        await pilot.press("down")
         row = diff.rows[diff.cursor]
         assert (row.text, row.old_no, row.new_no) == ("line 9", 9, 9)
         await pilot.press("f")  # whole file: every line, no gaps or hunk headers
@@ -122,6 +130,11 @@ async def test_hidden_unchanged_lines_expand_and_whole_file(repo):
         assert not any(r.kind in ("gap", "hunk") for r in diff.rows)
         assert [r.new_no for r in diff.rows if r.marker != "-"] == list(range(1, 41))
         assert diff.rows[diff.cursor].text == "line 9"  # still on the same line
+        await pilot.press("f")  # back to changes only: opened gaps are folded again
+        await settle(pilot, app)
+        assert [r.text for r in diff.rows if r.kind == "gap"] == gaps
+        await pilot.press("f")
+        await settle(pilot, app)
         # staging a hunk still works on the whole-file view
         diff.cursor = next(i for i, r in enumerate(diff.rows) if r.text == "FIVE")
         await pilot.press("space")
