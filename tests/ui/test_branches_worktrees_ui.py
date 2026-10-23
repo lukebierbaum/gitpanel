@@ -48,3 +48,26 @@ async def test_worktrees_window_new_and_switch(repo, tmp_path):
         assert app.session.active.path.resolve() == (tmp_path / "wtf").resolve()
         header = str(app.query_one("#header").render())
         assert "worktree:" in header and "wt-feature" in header
+
+
+async def test_worktrees_filter(repo, tmp_path):
+    repo.git("worktree", "add", "-q", "-b", "feature/alpha", str(tmp_path / "alpha"))
+    repo.git("worktree", "add", "-q", "-b", "bugfix/beta", str(tmp_path / "beta"))
+    app = GitPanelApp(repo.path)
+    async with app.run_test(size=(150, 45)) as pilot:
+        await settle(pilot, app)
+        await pilot.press("3")
+        await settle(pilot, app)
+        view = app.view
+        assert isinstance(view, WorktreesView)
+        table = view.query_one(DataTable)
+        assert table.row_count == 3
+        await pilot.press("slash", *"bugfix")
+        await settle(pilot, app)
+        assert table.row_count == 1 and view.selected().branch_short == "bugfix/beta"
+        await pilot.press("ctrl+u", *"main")  # state words match too
+        await settle(pilot, app)
+        assert table.row_count == 1 and view.selected().is_main
+        await pilot.press("escape")
+        await settle(pilot, app)
+        assert table.row_count == 3 and app.focused is table

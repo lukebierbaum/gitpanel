@@ -23,6 +23,7 @@ def _isolated_git_env(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pyt
     home = tmp_path_factory.mktemp("home")
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    monkeypatch.setenv("XDG_STATE_HOME", str(home / ".local" / "state"))  # saved pane sizes
     monkeypatch.delenv("GIT_DIR", raising=False)
     monkeypatch.delenv("GIT_WORK_TREE", raising=False)
     for k, v in DETERMINISTIC_ENV.items():

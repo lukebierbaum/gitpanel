@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -121,10 +123,130 @@ def conflict_repo(base: Path) -> Path:
     return repo
 
 
+def pr_repo(base: Path) -> Path:
+    """A repo whose origin looks like github.com/acme/parser, answered by the tests' fake gh."""
+    bare = base / "github.com" / "acme" / "parser.git"
+    bare.parent.mkdir(parents=True)
+    git(base, "init", "-q", "--bare", "-b", "main", str(bare))
+    repo = base / "parser-prs"
+    git(base, "init", "-q", "-b", "main", str(repo))
+    git(repo, "remote", "add", "origin", str(bare))
+    src = "def parse(s):\n    return s.split()\n"
+    commit(repo, {"parser.py": src}, "Initial parser")
+    git(repo, "push", "-q", "-u", "origin", "main")
+    now = datetime.now(UTC)
+    ago = lambda **kw: (now - timedelta(**kw)).strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+
+    def check(name: str, conclusion: str, secs: int) -> dict:
+        return {
+            "__typename": "CheckRun", "name": name, "workflowName": "CI",
+            "status": "COMPLETED" if conclusion != "PENDING" else "IN_PROGRESS",
+            "conclusion": conclusion if conclusion != "PENDING" else "",
+            "detailsUrl": "https://github.com/acme/parser/actions/runs/1/job/1",
+            "startedAt": ago(minutes=30), "completedAt": ago(minutes=30, seconds=-secs),
+        }  # fmt: skip
+
+    specs = [
+        # number, branch, title, author, ci, review, labels, draft, hours ago
+        (48, "feature/streaming", "Stream tokens instead of building a list", "ada",
+         "FAILURE", "REVIEW_REQUIRED", ["performance"], False, 2),
+        (47, "fix/unicode-ws", "Treat unicode whitespace as separators", "grace",
+         "SUCCESS", "APPROVED", ["bug"], False, 5),
+        (45, "feature/cli-json", "Add --json output to the CLI", "linus",
+         "PENDING", "REVIEW_REQUIRED", [], False, 26),
+        (44, "docs/tokens", "Document the token table", "margaret",
+         "SUCCESS", "CHANGES_REQUESTED", ["docs"], False, 50),
+        (41, "spike/rust-core", "Rust tokenizer core (spike)", "ada",
+         "SUCCESS", "", [], True, 120),
+    ]  # fmt: skip
+    prs = []
+    for number, branch, title, author, ci, review, labels, draft, hours in specs:
+        git(repo, "switch", "-q", "-c", branch, "main")
+        commit(repo, {"parser.py": src.replace("s.split()", "s.strip().split()")}, title)
+        commit(repo, {f"tests/test_{number}.py": "def test():\n    assert True\n"}, "Add tests")
+        git(repo, "push", "-q", "-u", "origin", branch)
+        sha = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True
+        ).stdout.strip()
+        git(repo, "--git-dir", str(bare), "update-ref", f"refs/pull/{number}/head", sha)
+        checks = [check("tests", "SUCCESS" if ci != "PENDING" else "PENDING", 154),
+                  check("lint", ci if ci == "FAILURE" else "SUCCESS", 38),
+                  check("typecheck", "SUCCESS", 71)]  # fmt: skip
+        prs.append(
+            {
+                "number": number, "title": title, "author": {"login": author}, "state": "OPEN",
+                "isDraft": draft, "headRefName": branch, "baseRefName": "main",
+                "headRefOid": sha, "additions": 42, "deletions": 7, "changedFiles": 2,
+                "reviewDecision": review, "statusCheckRollup": checks,
+                "labels": [{"name": n} for n in labels],
+                "url": f"https://github.com/acme/parser/pull/{number}",
+                "updatedAt": ago(hours=hours), "createdAt": ago(hours=hours + 30),
+                "isCrossRepository": False, "headRepositoryOwner": {"login": "acme"},
+                "body": "",
+                "mergeable": "MERGEABLE", "mergeStateStatus": "BLOCKED",
+                "reviewRequests": [{"login": "you"}], "latestReviews": [], "comments": [],
+                "assignees": [],
+            }
+        )  # fmt: skip
+    git(repo, "switch", "-q", "main")
+    prs[0]["body"] = (
+        "Builds tokens lazily so `parse_all()` can handle files that don't fit in memory.\n\n"
+        "- `tokenize()` is now a generator\n- `parse_all()` streams line by line\n\n"
+        "Benchmarks: **3.1× less memory** on the 2 GB corpus, same speed."
+    )
+    prs[0]["latestReviews"] = [
+        {
+            "author": {"login": "grace"},
+            "state": "COMMENTED",
+            "body": "Looks good — one nit on lint.",
+            "submittedAt": ago(hours=1),
+        }
+    ]
+    prs[0]["comments"] = [
+        {"author": {"login": "grace"}, "createdAt": ago(hours=1),
+         "body": "Nice! Lint is failing on an unused import in tokens.py."},
+        {"author": {"login": "ada"}, "createdAt": ago(minutes=40),
+         "body": "Good catch — fixing."},
+    ]  # fmt: skip
+    state = base / "gh-state.json"
+    state.write_text(
+        json.dumps(
+            {
+                "me": "you",
+                "bare": str(bare),
+                "repo": {
+                    "owner": {"login": "acme"},
+                    "name": "parser",
+                    "defaultBranchRef": {"name": "main"},
+                    "url": "https://github.com/acme/parser",
+                },  # fmt: skip
+                "prs": prs,
+                "threads": {},
+                "calls": [],
+            }
+        )
+    )
+    bin_dir = base / "bin"
+    bin_dir.mkdir()
+    shim = bin_dir / "gh"
+    shim.write_text(
+        f'#!/bin/sh\nexec "{sys.executable}" "{ROOT / "tests" / "forge" / "fake_gh.py"}" "$@"\n'
+    )
+    shim.chmod(0o755)
+    os.environ["PATH"] = f"{bin_dir}:{os.environ['PATH']}"
+    os.environ["FAKE_GH_STATE"] = str(state)
+    return repo
+
+
 async def shot(
-    repo: Path, name: str, keys: list[str], theme: str = "hulk", message: str | None = None
+    repo: Path,
+    name: str,
+    keys: list[str],
+    theme: str = "hulk",
+    message: str | None = None,
+    **config: object,
 ) -> None:
-    app = GitPanelApp(repo, config=Config(theme=theme))
+    app = GitPanelApp(repo, config=Config(theme=theme, **config))  # type: ignore[arg-type]
     async with app.run_test(size=SIZE) as pilot:
         for _ in range(40):
             await pilot.pause(0.02)
@@ -146,6 +268,7 @@ async def shot(
 async def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     base = Path(tempfile.mkdtemp(prefix="gitpanel-shots-"))
+    os.environ["XDG_STATE_HOME"] = str(base / "state")  # default pane sizes, not yours
     try:
         repo = pick_repo(base)
         await shot(repo, "commit", ["down", "down", "down", "tab"])
@@ -154,6 +277,7 @@ async def main() -> None:
         await shot(repo, "compare", ["b", *"feat", "ctrl+e"])
         await shot(repo, "worktrees", ["3"])
         await shot(conflict_repo(base), "resolver", ["down", "down", "enter"])
+        await shot(pr_repo(base), "prs", ["7"], pr_default_query="open")
         # last: these steps change the repo (stage, commit) so the Console has something to show
         await shot(
             repo,

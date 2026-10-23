@@ -111,3 +111,40 @@ async def test_pr_list_filters_as_you_type(gh_repo):
         await pilot.press("escape")
         await settle(pilot, app)
         assert table.row_count == 2 and app.focused is table
+
+
+async def test_pr_list_sorts_by_column(gh_repo):
+    app = GitPanelApp(gh_repo.repo.path, config=Config(pr_default_query="open"))
+    async with app.run_test(size=(150, 40)) as pilot:
+        await settle(pilot, app)
+        await pilot.press("7")
+        await settle(pilot, app)
+        view = app.view
+        table = view.query_one("#pr-list", DataTable)
+
+        def numbers() -> list[str]:
+            return [str(table.get_row_at(i)[0]) for i in range(table.row_count)]
+
+        view.sort_by("num")  # newest first
+        assert numbers() == ["#2", "#1"] and str(table.columns["num"].label) == "# ▼"
+        view.sort_by("num")  # same column again flips
+        assert numbers() == ["#1", "#2"]
+        view.sort_by("ci")  # failing first; #2 has no checks
+        await settle(pilot, app)
+        assert numbers() == ["#1", "#2"]
+        await pilot.press("S")  # reverse
+        assert numbers() == ["#2", "#1"]
+        view.sort_by("title")
+        assert numbers() == ["#2", "#1"]  # "Add CLI flags" < "Harden parser…"
+        await pilot.press("s")  # next column: author ("lin" < "me")
+        assert numbers() == ["#1", "#2"] and str(table.columns["author"].label) == "Author ▲"
+
+
+async def test_pr_list_columns_fit_the_pane(gh_repo):
+    app = GitPanelApp(gh_repo.repo.path, config=Config(pr_default_query="open"))
+    async with app.run_test(size=(140, 38)) as pilot:
+        await settle(pilot, app)
+        await pilot.press("7")
+        await settle(pilot, app)
+        table = app.view.query_one("#pr-list", DataTable)
+        assert table.virtual_size.width <= table.scrollable_content_region.width

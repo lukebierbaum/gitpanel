@@ -68,6 +68,43 @@ DEBOUNCE = 0.2  # seconds the list cursor must rest before a PR's details are fe
 DETAIL_TTL = 60.0  # cached details younger than this aren't fetched again on highlight
 
 
+# list columns: key, label, width
+COLUMNS = (
+    ("num", "#", 6),
+    ("ci", "CI", 4),
+    ("review", "Review", 9),
+    ("title", "Title", None),
+    ("author", "Author", 10),
+    ("updated", "Updated", 9),
+)
+CI_ORDER = {"failure": 0, "pending": 1, "success": 2, "none": 3}
+REVIEW_ORDER = {"CHANGES_REQUESTED": 0, "REVIEW_REQUIRED": 1, "APPROVED": 2, "": 3}
+NEWEST_FIRST = ("num", "updated")  # columns whose first click sorts descending
+
+
+class PRTable(DataTable):
+    """The PR list: the Title column takes whatever width the fixed columns leave."""
+
+    def on_resize(self) -> None:
+        self.fit_title()
+
+    def fit_title(self) -> None:
+        if "title" not in self.columns:
+            return
+        others = sum(w or 0 for k, _, w in COLUMNS if k != "title")
+        padding = 2 * self.cell_padding * len(COLUMNS)
+        # leave room for the vertical scrollbar: it appears without a resize event
+        width = self.size.width - self.styles.scrollbar_size_vertical
+        room = width - others - padding
+        column = self.columns["title"]  # type: ignore[index]
+        column.auto_width = False
+        column.width = max(room, 8)
+        # DataTable has no public "column width changed" hook; these are what add_column uses
+        self._require_update_dimensions = True
+        self._clear_caches()
+        self.refresh()
+
+
 def ago(when: datetime | None) -> str:
     if when is None:
         return ""
@@ -121,6 +158,7 @@ class PRsView(Vertical):
         self._query = "mine"
         self._searched = ""  # text last sent to GitHub as a search (enter in the filter box)
         self._updated = ""
+        self._sort: tuple[str, bool] | None = None  # (column key, descending); None = GitHub's
 
     @property
     def gp(self) -> GitPanelApp:
@@ -144,7 +182,7 @@ class PRsView(Vertical):
         with Horizontal(id="pr-main"):
             with Vertical(id="pr-left"):
                 yield Static("", id="pr-empty")
-                yield DataTable(id="pr-list", cursor_type="row", zebra_stripes=True)
+                yield PRTable(id="pr-list", cursor_type="row", zebra_stripes=True)
             yield Splitter("prs.list", "x", minimum=30)
             with TabbedContent(id="pr-tabs"):
                 with (
@@ -167,15 +205,9 @@ class PRsView(Vertical):
 
     def on_mount(self) -> None:
         table = self.query_one("#pr-list", DataTable)
-        for label, width in (
-            ("#", 6),
-            ("CI", 3),
-            ("Review", 9),
-            ("Title", None),
-            ("Author", 12),
-            ("Updated", 8),
-        ):
-            table.add_column(label, width=width)
+        for key, label, width in COLUMNS:
+            table.add_column(label, width=width, key=key)
+        table.fit_title()  # type: ignore[attr-defined]
         checks = self.query_one("#pr-checks", DataTable)
         for label, width in (("", 2), ("Check", 32), ("Workflow", 18), ("Time", 8)):
             checks.add_column(label, width=width)
@@ -260,6 +292,7 @@ class PRsView(Vertical):
         shown = [
             pr for pr in self.prs if not text or pr_matches(pr, text, **self._known(pr.number))
         ]
+        shown = self._sorted(shown)
         table = self.query_one("#pr-list", DataTable)
         current = self.detail.number if self.detail else keep
         table.clear()
@@ -296,6 +329,61 @@ class PRsView(Vertical):
             self.detail = None
             self._clear_detail()
 
+    # -- sorting ------------------------------------------------------------------------------
+    def _sorted(self, prs: list[PullRequest]) -> list[PullRequest]:
+        if self._sort is None:
+            return prs
+        column, descending = self._sort
+
+        def key(pr: PullRequest) -> Any:
+            ci, review = self._statuses.get(pr.number, (None, None))
+            return {
+                "num": pr.number,
+                "ci": CI_ORDER.get(ci, 4) if ci else 4,
+                "review": REVIEW_ORDER.get(review, 4) if review is not None else 4,
+                "title": pr.title.casefold(),
+                "author": pr.author.casefold(),
+                "updated": pr.updated.timestamp() if pr.updated else 0.0,
+            }[column]
+
+        return sorted(prs, key=key, reverse=descending)
+
+    def sort_by(self, column: str | None, descending: bool | None = None) -> None:
+        """Sort the list by `column` (None = GitHub's order). Without `descending`, a new
+        column starts in its natural direction and the current one flips."""
+        if column is None:
+            self._sort = None
+        else:
+            if descending is None:
+                if self._sort is not None and self._sort[0] == column:
+                    descending = not self._sort[1]
+                else:
+                    descending = column in NEWEST_FIRST
+            self._sort = (column, descending)
+        table = self.query_one("#pr-list", DataTable)
+        for key, label, _ in COLUMNS:
+            arrow = ""
+            if self._sort is not None and self._sort[0] == key:
+                arrow = " ▼" if self._sort[1] else " ▲"
+            table.columns[key].label = Text(label + arrow)  # type: ignore[index]
+        table.refresh()
+        self._render_rows()
+
+    @on(DataTable.HeaderSelected, "#pr-list")
+    def _header(self, event: DataTable.HeaderSelected) -> None:
+        self.sort_by(str(event.column_key.value))
+
+    def _cycle_sort(self, reverse: bool) -> None:
+        if reverse:
+            if self._sort is not None:
+                self.sort_by(self._sort[0], not self._sort[1])
+            return
+        keys = [k for k, _, _ in COLUMNS]
+        current = keys.index(self._sort[0]) if self._sort is not None else -1
+        self.sort_by(keys[current + 1] if current + 1 < len(keys) else None)
+        label = next((lbl for k, lbl, _ in COLUMNS if self._sort and k == self._sort[0]), None)
+        self.gp.notify(f"Sorted by {label}" if label else "GitHub's order", timeout=2)
+
     def _known(self, number: int) -> dict[str, Any]:
         ci, review = self._statuses.get(number, (None, None))
         return {"ci": ci, "review": review}
@@ -322,8 +410,10 @@ class PRsView(Vertical):
         except ForgeError:
             return
         self._statuses.update(found)
-        if any(q in self._filter_text() for q in ("status:", "review:")):
-            self._render_rows()  # the filter depends on what just arrived
+        if any(q in self._filter_text() for q in ("status:", "review:")) or (
+            self._sort is not None and self._sort[0] in ("ci", "review")
+        ):
+            self._render_rows()  # the filter or sort order depends on what just arrived
             return
         table = self.query_one("#pr-list", DataTable)
         columns = list(table.columns)
@@ -349,10 +439,15 @@ class PRsView(Vertical):
     def on_key(self, event: events.Key) -> None:
         focused = self.screen.focused
         search = self.query_one("#pr-search", Input)
-        if event.key == "slash" and focused is self.query_one("#pr-list", DataTable):
+        on_list = focused is self.query_one("#pr-list", DataTable)
+        if event.key == "slash" and on_list:
             event.stop()
             event.prevent_default()
             search.focus()
+        elif event.character in ("s", "S") and on_list:
+            event.stop()
+            event.prevent_default()
+            self._cycle_sort(reverse=event.character == "S")
         elif event.key == "escape" and focused is search:
             event.stop()
             event.prevent_default()
@@ -692,5 +787,5 @@ class PRsView(Vertical):
 
     def hint_extras(self) -> list[tuple[str, str]]:
         if self.screen.focused is self.query_one("#pr-list", DataTable):
-            return [("/", "filter"), ("tab", "next pane")]
+            return [("/", "filter"), ("s/S", "sort/reverse"), ("tab", "next pane")]
         return [("tab", "next pane")]

@@ -6,10 +6,10 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
-from textual import on, work
+from textual import events, on, work
 from textual.app import ComposeResult
 from textual.containers import Vertical
-from textual.widgets import DataTable, Static
+from textual.widgets import DataTable, Input, Static
 
 from ...actions.context import Scope, SelectionContext
 from ...git import worktrees as W
@@ -22,12 +22,32 @@ GREEN = "#6CCB3A"
 PURPLE = "#A66BE0"
 
 
+def _haystack(wt: Worktree, s: W.WorktreeSummary) -> str:
+    """What the filter matches: name, branch, path, HEAD and state words."""
+    words = [wt.name, wt.branch_short or "detached", str(wt.path), wt.head or ""]
+    words.append("dirty" if s.dirty else "clean")
+    if s.missing:
+        words.append("missing")
+    if s.conflicts:
+        words.append("conflicts")
+    if wt.is_main:
+        words.append("main")
+    if wt.locked is not None:
+        words.append(f"locked {wt.locked}")
+    if wt.prunable is not None:
+        words.append("prunable")
+    if s.operation is not None:
+        words.append(s.operation.kind.value)
+    return " ".join(words).lower()
+
+
 class WorktreesView(Vertical):
     name_id = "worktrees"
     stale = True
 
     DEFAULT_CSS = """
     WorktreesView { height: 1fr; }
+    WorktreesView #wt-filter { margin: 0 1; }
     WorktreesView DataTable { height: 1fr; background: $surface; }
     WorktreesView #wt-details {
         height: auto; min-height: 5; padding: 1 2; border-top: tall $panel;
@@ -36,13 +56,19 @@ class WorktreesView(Vertical):
 
     def __init__(self) -> None:
         super().__init__(id="worktrees-view")
-        self.items: list[tuple[Worktree, W.WorktreeSummary]] = []
+        self.all_items: list[tuple[Worktree, W.WorktreeSummary]] = []
+        self.items: list[tuple[Worktree, W.WorktreeSummary]] = []  # the ones shown (filtered)
 
     @property
     def gp(self) -> GitPanelApp:
         return self.app  # type: ignore[return-value]
 
     def compose(self) -> ComposeResult:
+        yield Input(
+            placeholder="/ Filter worktrees by name, branch, path or state (dirty, locked …)",
+            id="wt-filter",
+            compact=True,
+        )
         table: DataTable[Text | str] = DataTable(
             id="wt-table", cursor_type="row", zebra_stripes=True
         )
@@ -72,9 +98,20 @@ class WorktreesView(Vertical):
             return
         wts = await session.worktrees()
         summaries = await asyncio.gather(*(W.summary(w) for w in wts))
-        self.items = list(zip(wts, summaries, strict=True))
+        self.all_items = list(zip(wts, summaries, strict=True))
+        self._render_rows()
+
+    def _render_rows(self) -> None:
+        session = self.gp.session
+        if session is None:
+            return
         table = self.query_one(DataTable)
+        prev_path = self.selected().path if self.selected() is not None else None
         prev = table.cursor_row
+        words = self.query_one("#wt-filter", Input).value.lower().split()
+        self.items = [
+            (wt, s) for wt, s in self.all_items if all(w in _haystack(wt, s) for w in words)
+        ]
         table.clear()
         active = session.active.path.resolve()
         for wt, s in self.items:
@@ -117,8 +154,33 @@ class WorktreesView(Vertical):
                 key=str(wt.path),
             )
         if self.items:
-            table.move_cursor(row=min(max(prev, 0), len(self.items) - 1))
+            row = next(
+                (i for i, (wt, _) in enumerate(self.items) if wt.path == prev_path),
+                min(max(prev, 0), len(self.items) - 1),
+            )
+            table.move_cursor(row=row)
         self.show_details()
+
+    @on(Input.Changed, "#wt-filter")
+    def _filter(self) -> None:
+        self._render_rows()
+
+    @on(Input.Submitted, "#wt-filter")
+    def _filter_done(self) -> None:
+        self.query_one(DataTable).focus()
+
+    def on_key(self, event: events.Key) -> None:
+        focused = self.screen.focused
+        search = self.query_one("#wt-filter", Input)
+        if event.key == "slash" and focused is self.query_one(DataTable):
+            event.stop()
+            event.prevent_default()
+            search.focus()
+        elif event.key == "escape" and focused is search:
+            event.stop()
+            event.prevent_default()
+            search.value = ""
+            self.query_one(DataTable).focus()
 
     def selected(self) -> Worktree | None:
         table = self.query_one(DataTable)
@@ -169,6 +231,8 @@ class WorktreesView(Vertical):
         return SelectionContext(**{**base.__dict__, **kwargs})
 
     def hint_extras(self) -> list[tuple[str, str]]:
+        if self.screen.focused is self.query_one(DataTable):
+            return [("/", "filter")]
         return []
 
     def handle_event(self, event: str, data: dict[str, Any]) -> None:

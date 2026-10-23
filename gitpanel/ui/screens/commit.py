@@ -30,8 +30,8 @@ class CommitView(Vertical):
     CommitView #commit-body { height: 1fr; }
     CommitView #commit-left { width: 42%; min-width: 24; }
     CommitView FileTree { height: 1fr; background: $surface; }
-    CommitView #commit-panel { height: auto; padding: 0 1; border-top: tall $panel; }
-    CommitView #commit-msg { height: 7; }
+    CommitView #commit-panel { height: 15; padding: 0 1; }
+    CommitView #commit-msg { height: 1fr; min-height: 3; }
     CommitView #commit-options { height: auto; margin-top: 1; }
     CommitView #commit-options Checkbox { margin-right: 1; }
     CommitView #commit-options .spacer { width: 1fr; }
@@ -56,6 +56,8 @@ class CommitView(Vertical):
         with Horizontal(id="commit-body"):
             with Vertical(id="commit-left"):
                 yield FileTree(id="changes")
+                # drag to make the message box taller or shorter
+                yield Splitter("commit.message", "y", minimum=8, resizes="next")
                 with Vertical(id="commit-panel"):
                     yield TextArea(
                         id="commit-msg",

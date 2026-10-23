@@ -1,4 +1,5 @@
-"""Draggable divider between two panes. Resizes the pane before it; sizes are remembered."""
+"""Draggable divider between two panes. Resizes the pane before (or after) it; sizes are
+remembered."""
 
 from __future__ import annotations
 
@@ -42,7 +43,8 @@ class Splitter(Widget):
     """A 1-cell bar. Drag to resize the previous sibling; double-click to reset it.
 
     `axis="x"` sits between side-by-side panes (resizes width), `axis="y"`
-    between stacked panes (resizes height).
+    between stacked panes (resizes height). `resizes="next"` sizes the following sibling
+    instead, for a pane that sits below or right of a flexible one.
     """
 
     DEFAULT_CSS = """
@@ -54,11 +56,18 @@ class Splitter(Widget):
     """
 
     def __init__(
-        self, key: str, axis: Literal["x", "y"] = "x", *, minimum: int = 8, id: str | None = None
+        self,
+        key: str,
+        axis: Literal["x", "y"] = "x",
+        *,
+        minimum: int = 8,
+        resizes: Literal["previous", "next"] = "previous",
+        id: str | None = None,
     ) -> None:
         super().__init__(id=id, classes=f"-{axis}")
         self.key = key
         self.axis = axis
+        self.resizes = resizes
         self.minimum = minimum
         self._origin: tuple[int, int] | None = None  # (mouse position, pane size) at drag start
         self._default: object = None
@@ -67,6 +76,8 @@ class Splitter(Widget):
     def pane(self) -> Widget | None:
         siblings = list(self.parent.children) if self.parent else []
         i = siblings.index(self)
+        if self.resizes == "next":
+            return siblings[i + 1] if i + 1 < len(siblings) else None
         return siblings[i - 1] if i > 0 else None
 
     def on_mount(self) -> None:
@@ -116,7 +127,8 @@ class Splitter(Widget):
             return
         start_pos, start_size = self._origin
         pos = event.screen_x if self.axis == "x" else event.screen_y
-        self._apply(start_size + pos - start_pos)
+        delta = pos - start_pos
+        self._apply(start_size + (delta if self.resizes == "previous" else -delta))
         event.stop()
 
     def on_mouse_up(self, event: events.MouseUp) -> None:

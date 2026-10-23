@@ -2,7 +2,7 @@
 
 **Git tooling inspired by PyCharm, in your terminal.**
 
-gitpanel is a keyboard-first Git client for the terminal, modelled on the Git integration in JetBrains IDEs: a commit window with hunk- and line-level staging, a log with a branch graph and a branches panel, worktrees, cherry-picking that knows what you've already picked, a 3-pane conflict resolver, interactive rebase, shelves — and **undo for everything**, including discarded changes.
+gitpanel is a keyboard-first Git client for the terminal, modelled on the Git integration in JetBrains IDEs: a commit window with hunk- and line-level staging, a log with a branch graph and a branches panel, worktrees, cherry-picking that knows what you've already picked, a 3-pane conflict resolver, interactive rebase, shelves, GitHub pull requests — and **undo for everything**, including discarded changes.
 
 ![The Log: branch graph, branches panel, commit details](docs/screenshots/log.svg)
 
@@ -11,11 +11,11 @@ gitpanel is a keyboard-first Git client for the terminal, modelled on the Git in
 - **Stage exactly what you mean** — whole files, single hunks or individual lines, in unified or side-by-side diffs. Changelists, amend, sign-off, commit-and-push.
 - **A log you can navigate** — coloured branch graph, a branches panel with folders (`feature/…`, `release/…`) to show any branch's history, filters by text, author, path and date, and dots that show what's **not pushed** (amber) or **only on the remote** (purple).
 - **Cherry-picking between branches** — pick one or many commits, see which commits are **already picked** (by patch content or `-x` trailer), compare branches side by side, pick onto a branch you don't have checked out, or pick just a hunk or a file.
-- **Worktrees as a first-class citizen** — create, switch, lock, move and remove them from a dedicated window; checking out a branch that lives in another worktree takes you there.
+- **Worktrees as a first-class citizen** — create, switch, filter, lock, move and remove them from a dedicated window; checking out a branch that lives in another worktree takes you there.
 - **Conflicts without leaving the terminal** — yours │ result │ theirs, per-chunk accept / combine / edit, then continue the merge, rebase or cherry-pick.
 - **History editing** — interactive rebase editor, reword, squash, fixup, drop, and a patch builder that moves hunks between commits.
 - **Undo everything** — `z` undoes the last operation (commits, resets, rebases, deleted branches, even discarded changes); `alt+z` shows the full operation history.
-- **Pull requests** — browse, check out (even into a fresh worktree), review, comment on lines, and merge GitHub PRs, through the `gh` CLI you're already logged into.
+- **Pull requests** — filter, sort, check out (even into a fresh worktree), review, comment on lines and merge GitHub PRs, through the `gh` CLI you're already logged into.
 - **See what it does** — the Console shows every git (and `gh`) command gitpanel runs and the reply.
 - **Make it yours** — remap any key, add your own commands, pick a theme (default: *Hulk*, purple and gamma green).
 
@@ -37,9 +37,14 @@ What's only on either side — commits that are already on your branch (same cha
 ![Compare branches](docs/screenshots/compare.svg)
 
 ### Worktrees
-Every worktree with its branch, local changes and ahead/behind counts. Create, switch, lock, move and remove them without leaving gitpanel.
+Every worktree with its branch, local changes and ahead/behind counts — filter them with `/`. Create, switch, lock, move and remove them without leaving gitpanel.
 
 ![Worktrees](docs/screenshots/worktrees.svg)
+
+### Pull requests
+Your PRs, the ones waiting for your review, or all of them — with CI and review state, filtering and sorting. Read the conversation, browse commits and files (review comments marked on the diff), check one out, review or merge.
+
+![Pull requests](docs/screenshots/prs.svg)
 
 ### 3-pane conflict resolver
 Yours │ result │ theirs. Take a side, take both or edit each chunk, then save and continue the merge, rebase or cherry-pick.
@@ -53,7 +58,7 @@ Every git command gitpanel runs, what it sent and what git answered.
 
 ## Install
 
-Requires **Python 3.11+** and **git 2.45+**, on Linux or macOS.
+Requires **Python 3.11+** and **git 2.45+**, on Linux or macOS. The Pull requests window also needs the [GitHub CLI](https://cli.github.com) (`gh`).
 
 ```bash
 pipx install git+https://github.com/lukebierbaum/gitpanel.git
@@ -91,7 +96,7 @@ gp() {
 | `z` / `Z` | undo / redo — the hint bar shows what |
 | `q` | quit |
 
-Panes can be resized by dragging the thin dividers between them (double-click resets). In the key hints, `^` means Ctrl.
+Panes can be resized by dragging the thin dividers between them — including the one above the commit message box (double-click resets); sizes are remembered. In the key hints, `^` means Ctrl.
 
 ## Workflows
 
@@ -131,14 +136,15 @@ Panes can be resized by dragging the thin dividers between them (double-click re
 | `b` → `ctrl+e` | Compare window: what's only on either branch, already-picked commits marked ✓ |
 
 ### Worktrees (`3`)
-`n` new · `enter` switch · `d` remove · `m` move · `l` lock · `s` open a shell there · `y` copy path. In the Branches popup, `ctrl+w` makes a worktree for a branch.
+`/` filter (name, branch, path, or words like `dirty`, `locked`, `rebase`) · `n` new · `enter` switch · `d` remove · `m` move · `l` lock · `s` open a shell there · `y` copy path. In the Branches popup, `ctrl+w` makes a worktree for a branch.
 
 ### Pull requests (`7`)
-Needs the [GitHub CLI](https://cli.github.com) (`gh auth login`). Lists *Mine · Review requested · Assigned · All open · Closed* with CI and review status, plus search; the current branch's PR shows in the header (`PR #12 ✓`).
+Needs the [GitHub CLI](https://cli.github.com) (`gh auth login`). Lists *Mine · Review requested · Assigned · All open · Closed* with CI and review status; the current branch's PR shows in the header (`PR #12 ✓`). The list appears first and CI/review fill in a moment later; a PR's commits are fetched in the background as soon as you select it.
 
 | Key | |
 |---|---|
 | `/` | filter the list as you type — words, `author:` `label:` `base:` `head:` `status:failure` `review:approved` `draft:false`, `-` to exclude; `enter` runs it as a GitHub search, `escape` clears |
+| `s` / `S` | sort by the next column / reverse (or click a column header; again to flip) |
 | `enter` | check out the PR (Smart / Force Checkout if local changes are in the way) |
 | `w` | check it out in a **new worktree** |
 | `n` | create a PR from the current branch — pushes it if needed, drafts title and description from its commits (also *Create Pull Request…* on any branch in the Branches popup) |
@@ -167,6 +173,11 @@ context = 3
 
 [log]
 branch_folders = true          # group feature/x, release/y … in the branches panel
+
+[prs]
+refresh_seconds = 180          # refresh the PR window while it's visible (0 = manual)
+default_query = "mine"         # mine | review | assigned | open | closed
+merge_method = "squash"        # default in the merge dialog
 
 [worktrees]
 path_template = "../{repo}.worktrees/{branch}"
@@ -216,6 +227,7 @@ git config --global fetch.writeCommitGraph true
 | Undo, including discarded changes | ◐ | ✗ | ✗ | ✅ |
 | Shelves and changelists | ✗ | ✗ | ✗ | ✅ |
 | Command log / console | ✅ | ✗ | ✗ | ✅ |
+| GitHub pull requests (review, merge, line comments) | ◐ | ✗ | ✗ | ✅ |
 
 gitpanel drives the real `git` CLI, so hooks, config, credential helpers and LFS behave exactly as they do on the command line. Feature-by-feature notes against PyCharm are in [docs/PARITY.md](docs/PARITY.md).
 
@@ -226,7 +238,7 @@ Uses [pixi](https://pixi.sh) for the environment.
 ```bash
 pixi run demo /tmp/gp-demo      # build a demo repository
 pixi run start /tmp/gp-demo     # run gitpanel on it
-pixi run test                   # ~180 tests against real git repositories
+pixi run test                   # 200+ tests against real git repositories (and a fake gh)
 pixi run lint
 pixi run python scripts/screenshots.py   # regenerate docs/screenshots
 ```
