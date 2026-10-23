@@ -30,8 +30,14 @@ async def test_list_queries_and_parse(gh):
     assert [p.number for p in review] == [1]
     pr = review[0]
     assert pr.author == "lin" and pr.head == "feature/fuzz" and pr.labels == ("security",)
-    assert [c.state for c in pr.checks] == ["success", "failure"] and pr.ci == "failure"
-    assert pr.checks[0].duration == 150 and pr.checks[1].run_id == "222"
+    # the list skips the fields that make GitHub slow; statuses() fills CI and review in
+    assert pr.checks == () and pr.ci == "none"
+    [call] = [c for c in gh_repo.calls() if c[:2] == ["pr", "list"]][:1]
+    assert "statusCheckRollup" not in call[call.index("--json") + 1]
+    assert await provider.statuses([1, 2]) == {
+        1: ("failure", "REVIEW_REQUIRED"),
+        2: ("none", "REVIEW_REQUIRED"),
+    }
     assert [p.number for p in await provider.list_prs("open", "parser")] == [1]
     assert await provider.list_prs("closed") == []
     assert any(e.kind == "gh" and e.command.startswith("gh pr list") for e in CONSOLE.entries)
@@ -41,6 +47,8 @@ async def test_details_threads_and_current(gh):
     gh_repo, session, provider = gh
     pr = await provider.pr(1)
     assert pr.detailed and pr.body == "Body of #1" and pr.mergeable == "MERGEABLE"
+    assert [c.state for c in pr.checks] == ["success", "failure"] and pr.ci == "failure"
+    assert pr.checks[0].duration == 150 and pr.checks[1].run_id == "222"
     [thread] = await provider.threads(1)
     assert thread.path == "app.py" and thread.line == 4 and thread.side == "RIGHT"
     assert thread.comments[0].body == "Why upper-case here?"
@@ -57,6 +65,10 @@ async def test_fetch_head_merge_base_and_checkout(gh):
     assert head == pr.head_sha
     base = await provider.merge_base(pr)
     assert base == gh_repo.repo.git("rev-parse", "main").strip()
+    # head and base are already here → no second trip to the remote
+    fetches = sum(e.command.startswith("git fetch") for e in CONSOLE.entries)
+    assert await provider.merge_base(pr) == base
+    assert sum(e.command.startswith("git fetch") for e in CONSOLE.entries) == fetches
     await provider.checkout(1)
     assert gh_repo.repo.git("branch", "--show-current").strip() == "feature/fuzz"
 

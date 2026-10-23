@@ -280,6 +280,8 @@ async def _comment(env: ActionEnv) -> None:
 
 async def _merge(env: ActionEnv) -> None:
     provider, pr = _need(env)
+    if not pr.detailed:  # the warnings below need mergeability, checks and reviews
+        pr = await provider.pr(pr.number)
     default = env.setting("merge_method", "squash")
     methods = [
         ("squash", "Squash and merge"),

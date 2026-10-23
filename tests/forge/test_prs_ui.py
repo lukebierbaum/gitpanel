@@ -21,6 +21,8 @@ async def test_pr_window_list_details_files_threads(gh_repo):
         assert isinstance(view, PRsView)
         table = view.query_one("#pr-list", DataTable)
         assert table.row_count == 1 and view.detail is not None and view.detail.number == 1
+        # CI and review arrive after the list, from the batched status query
+        assert str(table.get_row("1")[1]) == "✗" and str(table.get_row("1")[2]) == "Review"
         assert "Body of #1" in view.query_one("#pr-body").source  # type: ignore[attr-defined]
         assert view.query_one("#pr-checks", DataTable).row_count == 2
 

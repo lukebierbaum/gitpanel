@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -25,7 +27,7 @@ from textual.widgets.option_list import Option
 
 from ...actions.context import Scope, SelectionContext
 from ...forge.github import QUERIES, GitHub, detect
-from ...forge.models import PullRequest, ReviewThread
+from ...forge.models import CIState, PullRequest, ReviewThread
 from ...forge.runner import ForgeError
 from ...git import patch as P
 from ...git.graph import GraphRow
@@ -59,6 +61,10 @@ REVIEW = {
     "REVIEW_REQUIRED": ("Review", AMBER),
     "": ("", ""),
 }
+
+
+DEBOUNCE = 0.2  # seconds the list cursor must rest before a PR's details are fetched
+DETAIL_TTL = 60.0  # cached details younger than this aren't fetched again on highlight
 
 
 def ago(when: datetime | None) -> str:
@@ -106,6 +112,11 @@ class PRsView(Vertical):
         self._timer: Timer | None = None
         self._select_after: int | None = None
         self._detected = False
+        # caches so revisiting a list or a PR is instant while it refreshes in the background
+        self._lists: dict[tuple[str, str], list[PullRequest]] = {}
+        self._statuses: dict[int, tuple[CIState, str]] = {}
+        self._details: dict[int, tuple[PullRequest, float]] = {}
+        self._pending: Timer | None = None
 
     @property
     def gp(self) -> GitPanelApp:
@@ -195,6 +206,9 @@ class PRsView(Vertical):
         if not self._detected or (self.provider and self.provider.session is not session):
             self.provider = await detect(session)
             self._detected = True
+            self._lists.clear()
+            self._statuses.clear()
+            self._details.clear()
         if self.provider is None:
             self._empty(
                 "This repository has no github.com remote, or the GitHub CLI (gh) "
@@ -205,20 +219,33 @@ class PRsView(Vertical):
             return
         query = str(self.query_one("#pr-query", Select).value)
         search = self.query_one("#pr-search", Input).value
+        key = (query, search)
+        keep = self._select_after or (self.detail.number if self.detail else None)
+        self._select_after = None
+        cached = self._lists.get(key)
+        if cached is not None and [p.number for p in cached] != [p.number for p in self.prs]:
+            self._fill_list(cached, query, keep)
         self._status("loading…")
         try:
-            self.prs = await self.provider.list_prs(query, search)
+            prs = await self.provider.list_prs(query, search)
         except ForgeError as e:
             self._empty(f"{e}\n\n{e.hint}" if e.hint else str(e))
             self._status("")
             return
+        self._lists[key] = prs
+        self._fill_list(prs, query, keep, force=True)
+        self._status(f"{len(prs)} · updated {datetime.now():%H:%M}")
+        self.load_statuses([p.number for p in prs])
+
+    def _fill_list(
+        self, prs: list[PullRequest], query: str, keep: int | None, *, force: bool = False
+    ) -> None:
+        self.prs = prs
         table = self.query_one("#pr-list", DataTable)
-        keep = self._select_after or (self.detail.number if self.detail else None)
-        self._select_after = None
+        current = self.detail.number if self.detail else keep
         table.clear()
-        for pr in self.prs:
-            icon, color = CI_ICON[pr.ci]
-            review, rcolor = REVIEW.get(pr.review_decision, ("", ""))
+        for pr in prs:
+            ci, review = self._statuses.get(pr.number, (None, None))
             title = Text(pr.title, style="dim" if pr.draft else "")
             if pr.draft:
                 title.append("  draft", style=f"italic {PURPLE}")
@@ -226,23 +253,51 @@ class PRsView(Vertical):
                 title.append(f"  {label}", style="#3FB8AF")
             table.add_row(
                 Text(f"#{pr.number}", style="bold"),
-                Text(icon, style=f"bold {color}"),
-                Text(review, style=rcolor),
+                self._ci_cell(ci),
+                self._review_cell(review),
                 title,
                 pr.author,
                 ago(pr.updated),
                 key=str(pr.number),
             )
         label = QUERIES.get(query, ("", ""))[0]
-        self._empty(None if self.prs else f"No pull requests in “{label}”.")
-        self._status(f"{len(self.prs)} · updated {datetime.now():%H:%M}")
-        if self.prs:
-            row = next((i for i, p in enumerate(self.prs) if p.number == keep), 0)
+        self._empty(None if prs else f"No pull requests in “{label}”.")
+        if prs:
+            row = next((i for i, p in enumerate(prs) if p.number == (keep or current)), 0)
             table.move_cursor(row=row)
-            self.show_pr(self.prs[row].number, force=True)
+            self._select(prs[row].number, force=force)
         else:
             self.detail = None
             self._clear_detail()
+
+    @staticmethod
+    def _ci_cell(ci: CIState | None) -> Text:
+        if ci is None:
+            return Text("…", style="dim")
+        icon, color = CI_ICON[ci]
+        return Text(icon, style=f"bold {color}")
+
+    @staticmethod
+    def _review_cell(review: str | None) -> Text:
+        text, color = REVIEW.get(review or "", ("", ""))
+        return Text(text, style=color)
+
+    @work(exclusive=True, group="prs-status")
+    async def load_statuses(self, numbers: list[int]) -> None:
+        """CI and review state for the listed PRs (a separate, slower query)."""
+        if self.provider is None:
+            return
+        try:
+            found = await self.provider.statuses(numbers)
+        except ForgeError:
+            return
+        self._statuses.update(found)
+        table = self.query_one("#pr-list", DataTable)
+        columns = list(table.columns)
+        for n, (ci, review) in found.items():
+            if str(n) in table.rows:
+                table.update_cell(str(n), columns[1], self._ci_cell(ci))
+                table.update_cell(str(n), columns[2], self._review_cell(review))
 
     @on(Select.Changed, "#pr-query")
     def _query_changed(self) -> None:
@@ -256,8 +311,25 @@ class PRsView(Vertical):
     @on(DataTable.RowHighlighted, "#pr-list")
     def _row(self, event: DataTable.RowHighlighted) -> None:
         if event.row_key and event.row_key.value:
-            self.show_pr(int(event.row_key.value))
+            self._select(int(event.row_key.value))
         self.gp.refresh_hints()
+
+    def _select(self, number: int, *, force: bool = False) -> None:
+        """Show a PR: cached details at once, fresh ones once the cursor stops moving."""
+        if not force and self.detail is not None and self.detail.number == number:
+            return
+        cached = self._details.get(number)
+        if cached is not None:
+            self._show(cached[0])
+            if not force and time.monotonic() - cached[1] < DETAIL_TTL:
+                return
+        else:
+            summary = next((p for p in self.prs if p.number == number), None)
+            if summary is not None:
+                self._show(summary, partial=True)
+        if self._pending is not None:
+            self._pending.stop()
+        self._pending = self.set_timer(DEBOUNCE, lambda: self.show_pr(number, force=True))
 
     def _clear_detail(self) -> None:
         self.query_one("#pr-meta", Static).update("")
@@ -279,11 +351,26 @@ class PRsView(Vertical):
         except ForgeError as e:
             self.gp.notify(str(e), severity="error")
             return
+        self._details[number] = (pr, time.monotonic())
+        self._statuses[number] = (pr.ci, pr.review_decision)
+        if self.detail is not None and self.detail.number != number:
+            return  # the cursor moved on meanwhile
+        self._show(pr)
+
+    def _show(self, pr: PullRequest, *, partial: bool = False) -> None:
+        """Render a PR; `partial` = only the list summary is known so far."""
+        old = self.detail
         self.detail = pr
-        self._loaded_tabs.clear()
+        if old is None or old.number != pr.number or old.head_sha != pr.head_sha:
+            self._loaded_tabs.clear()
+            self._clear_detail()
         self._render_overview(pr)
-        self._render_checks(pr)
-        await self._load_active_tab()
+        if partial:
+            self.query_one("#pr-body", Markdown).update("*Loading…*")
+        else:
+            self._render_checks(pr)
+        # commits/files only need the head sha and base, which the list already has
+        self.call_later(self._load_active_tab)
         self.gp.refresh_hints()
 
     def _render_overview(self, pr: PullRequest) -> None:
@@ -362,10 +449,23 @@ class PRsView(Vertical):
         session = self.gp.session
         if session is None:
             return
+        provider = self.provider
+
+        async def threads() -> list[ReviewThread]:
+            if tab != "tab-files":
+                return []
+            try:
+                return await provider.threads(pr.number)
+            except ForgeError:
+                return []
+
+        # review threads come from GitHub while git fetches the commits
+        threads_task = asyncio.ensure_future(threads())
         try:
-            head = await self.provider.fetch_head(pr)
-            base = await self.provider.merge_base(pr)
+            head = await provider.fetch_head(pr)
+            base = await provider.merge_base(pr, head)
         except Exception as e:  # noqa: BLE001 - network/permission problems shouldn't crash
+            threads_task.cancel()
             self._loaded_tabs.discard(tab)
             self.gp.notify(f"Couldn't fetch #{pr.number}: {e}", severity="error")
             return
@@ -382,10 +482,7 @@ class PRsView(Vertical):
             self.diffs = await P.load_diff(session.git, P.RangeDiff(base, head))
             files = self.query_one("#pr-files", OptionList)
             files.clear_options()
-            try:
-                self.threads = await self.provider.threads(pr.number)
-            except ForgeError:
-                self.threads = []
+            self.threads = await threads_task
             per_file = defaultdict(int)
             for t in self.threads:
                 if not t.resolved:

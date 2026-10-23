@@ -93,6 +93,16 @@ class Check:
         )
 
 
+# GraphQL StatusState of a commit's check rollup → CIState
+ROLLUP_STATE: dict[str, CIState] = {
+    "SUCCESS": "success",
+    "FAILURE": "failure",
+    "ERROR": "failure",
+    "PENDING": "pending",
+    "EXPECTED": "pending",
+}
+
+
 def rollup(checks: tuple[Check, ...]) -> CIState:
     if not checks:
         return "none"
@@ -151,10 +161,14 @@ class PullRequest:
     comments: tuple[Comment, ...] = ()
     auto_merge: bool = False
     detailed: bool = False
+    # overall CI state when the individual checks weren't fetched (see GitHub.statuses)
+    ci_state: CIState | None = None
     extra: dict[str, Any] = field(default_factory=dict, compare=False, hash=False)
 
     @property
     def ci(self) -> CIState:
+        if not self.checks and self.ci_state is not None:
+            return self.ci_state
         return rollup(self.checks)
 
     @classmethod

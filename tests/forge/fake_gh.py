@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -54,6 +55,12 @@ def find(state: dict, number: str) -> dict:
     raise AssertionError
 
 
+def project(pr: dict, args: list[str]) -> dict:
+    """Only the fields asked for with --json, like real gh."""
+    fields = (opt(args, "--json") or "").split(",")
+    return {k: v for k, v in pr.items() if k in fields}
+
+
 def body_from_stdin(args: list[str]) -> str:
     return sys.stdin.read() if opt(args, "--body-file") == "-" else (opt(args, "--body") or "")
 
@@ -94,17 +101,17 @@ def main(argv: list[str]) -> None:
                 if want == "closed" and st == "OPEN":
                     continue
                 if matches(pr, state, search):
-                    out.append(pr)
+                    out.append(project(pr, rest))
             print(json.dumps(out))
             return
         if sub == "view":
             if rest and not rest[0].startswith("-"):
-                print(json.dumps(find(state, rest[0])))
+                print(json.dumps(project(find(state, rest[0]), rest)))
                 return
             branch = git("branch", "--show-current").strip()
             for pr in state["prs"]:
                 if pr["headRefName"] == branch:
-                    print(json.dumps(pr))
+                    print(json.dumps(project(pr, rest)))
                     return
             fail(f'no pull requests found for branch "{branch}"')
         number = rest[0] if rest and not rest[0].startswith("-") else None
@@ -197,6 +204,30 @@ def main(argv: list[str]) -> None:
                         t["isResolved"] = resolved
             save(state)
             print("{}")
+            return
+        if "statusCheckRollup" in query:  # GitHub.statuses: aliased p<N> fields
+            repo = {}
+            for n in re.findall(r"p(\d+): pullRequest", query):
+                pr = next((p for p in state["prs"] if str(p["number"]) == n), None)
+                if pr is None:
+                    continue
+                concl = {c.get("conclusion") or c.get("status") for c in pr["statusCheckRollup"]}
+                rollup = (
+                    None
+                    if not concl
+                    else "FAILURE"
+                    if "FAILURE" in concl
+                    else "PENDING"
+                    if concl - {"SUCCESS", "SKIPPED", "NEUTRAL"}
+                    else "SUCCESS"
+                )
+                repo[f"p{n}"] = {
+                    "reviewDecision": pr.get("reviewDecision"),
+                    "commits": {
+                        "nodes": [{"commit": {"statusCheckRollup": rollup and {"state": rollup}}}]
+                    },
+                }
+            print(json.dumps({"data": {"repository": repo}}))
             return
         threads = state.get("threads", {}).get(fields.get("number", ""), [])
         print(

@@ -2,26 +2,34 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
 from ..git.remote import NO_PROMPT
 from ..git.session import RepoSession
-from .models import PullRequest, ReviewThread
+from .models import ROLLUP_STATE, CIState, PullRequest, ReviewThread
 from .runner import ForgeError, Gh
 
+# Only cheap fields: asking `gh pr list` for statusCheckRollup / reviewDecision / additions
+# makes GitHub resolve them for every PR (≈11 s for 100 PRs vs ≈1.5 s). The list gets CI and
+# review state afterwards from `statuses()`.
 LIST_FIELDS = (
-    "number,title,author,state,isDraft,headRefName,baseRefName,headRefOid,additions,deletions,"
-    "changedFiles,reviewDecision,statusCheckRollup,labels,updatedAt,createdAt,url,"
-    "isCrossRepository,headRepositoryOwner"
+    "number,title,author,state,isDraft,headRefName,baseRefName,headRefOid,labels,updatedAt,"
+    "createdAt,url,isCrossRepository,headRepositoryOwner"
 )
+SUMMARY_FIELDS = LIST_FIELDS + ",additions,deletions,changedFiles,reviewDecision,statusCheckRollup"
 DETAIL_FIELDS = (
-    LIST_FIELDS
+    SUMMARY_FIELDS
     + ",body,mergeable,mergeStateStatus,reviewRequests,latestReviews,comments,autoMergeRequest"
 )
+STATUS_BATCH = 10  # PRs per GraphQL request; batches run in parallel
+STATUS_PARALLEL = 8
+BASE_FETCH_TTL = 300.0  # seconds before a PR's base branch is fetched again
 
 Query = Literal["mine", "review", "assigned", "open", "closed"]
 QUERIES: dict[str, tuple[str, str]] = {
@@ -91,6 +99,7 @@ class GitHub:
     def __init__(self, session: RepoSession) -> None:
         self.session = session
         self._repo: RepoInfo | None = None
+        self._base_fetched: dict[str, float] = {}  # base branch → monotonic time of last fetch
 
     @property
     def gh(self) -> Gh:
@@ -134,9 +143,50 @@ class GitHub:
         d = await self.gh.json("pr", "view", str(number), "--json", DETAIL_FIELDS)
         return PullRequest.parse(d, detailed=True)
 
+    async def statuses(self, numbers: Sequence[int]) -> dict[int, tuple[CIState, str]]:
+        """PR number → (CI rollup, review decision), in small parallel GraphQL batches."""
+        if not numbers:
+            return {}
+        info = await self.repo()
+        limit = asyncio.Semaphore(STATUS_PARALLEL)
+
+        async def batch(chunk: Sequence[int]) -> dict[int, tuple[CIState, str]]:
+            fields = " ".join(
+                f"p{n}: pullRequest(number: {n}) {{ reviewDecision "
+                "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } } }"
+                for n in chunk
+            )
+            query = (
+                "query($owner: String!, $name: String!) "
+                f"{{ repository(owner: $owner, name: $name) {{ {fields} }} }}"
+            )
+            async with limit:
+                d = await self.gh.json(
+                    "api", "graphql", "-f", f"query={query}",
+                    "-F", f"owner={info.owner}", "-F", f"name={info.name}",
+                )  # fmt: skip
+            repo = ((d or {}).get("data") or {}).get("repository") or {}
+            out: dict[int, tuple[CIState, str]] = {}
+            for n in chunk:
+                pr = repo.get(f"p{n}")
+                if not pr:
+                    continue
+                nodes = (pr.get("commits") or {}).get("nodes") or [{}]
+                state = (
+                    ((nodes[-1] or {}).get("commit") or {}).get("statusCheckRollup") or {}
+                ).get("state")
+                out[n] = (ROLLUP_STATE.get(str(state), "none"), str(pr.get("reviewDecision") or ""))
+            return out
+
+        chunks = [numbers[i : i + STATUS_BATCH] for i in range(0, len(numbers), STATUS_BATCH)]
+        merged: dict[int, tuple[CIState, str]] = {}
+        for part in await asyncio.gather(*(batch(c) for c in chunks)):
+            merged.update(part)
+        return merged
+
     async def current_pr(self) -> PullRequest | None:
         """The open PR for the checked-out branch, if any."""
-        res = await self.gh.run("pr", "view", "--json", LIST_FIELDS, check=False)
+        res = await self.gh.run("pr", "view", "--json", SUMMARY_FIELDS, check=False)
         if not res.ok or not res.stdout.strip():
             return None
         pr = PullRequest.parse(json.loads(res.stdout))
@@ -163,30 +213,37 @@ class GitHub:
 
     # -- local git side ---------------------------------------------------------------
     async def fetch_head(self, pr: PullRequest) -> str:
-        """Fetch the PR head (and its base) so commits and diffs come from local git."""
+        """Fetch the PR head (and its base) so commits and diffs come from local git.
+
+        One `git fetch` for both, skipped when the head is already here and the base was
+        fetched in the last few minutes.
+        """
         remote = await self.remote_name()
         ref = f"refs/gitpanel/pr/{pr.number}"
         git = self.session.git
         have = await git.try_rev_parse(ref)
+        refspecs = []
         if not (have and pr.head_sha and have == pr.head_sha):
-            await git.run(
-                "fetch",
-                "--quiet",
-                "--no-tags",
-                remote,
-                f"+refs/pull/{pr.number}/head:{ref}",
-                env=NO_PROMPT,
-            )
-        await git.run("fetch", "--quiet", "--no-tags", remote, pr.base, env=NO_PROMPT, check=False)
+            refspecs.append(f"+refs/pull/{pr.number}/head:{ref}")
+        fetched = self._base_fetched.get(pr.base)
+        if pr.base and (fetched is None or time.monotonic() - fetched > BASE_FETCH_TTL):
+            refspecs.append(f"+refs/heads/{pr.base}:refs/remotes/{remote}/{pr.base}")
+        if refspecs:
+            fetch = ("fetch", "--quiet", "--no-tags", remote)
+            res = await git.run(*fetch, *refspecs, env=NO_PROMPT, check=False)
+            if res.ok:
+                self._base_fetched[pr.base] = time.monotonic()
+            elif refspecs[0].startswith("+refs/pull/"):
+                # the base may be gone (deleted after merging); the head is what matters
+                await git.run(*fetch, refspecs[0], env=NO_PROMPT)
         return await git.rev_parse(ref)
 
-    async def merge_base(self, pr: PullRequest) -> str:
+    async def merge_base(self, pr: PullRequest, head: str | None = None) -> str:
         remote = await self.remote_name()
         git = self.session.git
-        head = await self.fetch_head(pr)
+        if head is None:
+            head = await self.fetch_head(pr)
         base = f"refs/remotes/{remote}/{pr.base}"
-        if not await git.try_rev_parse(base):
-            base = "FETCH_HEAD"
         res = await git.run("merge-base", base, head, read_only=True)
         return res.text.strip()
 
