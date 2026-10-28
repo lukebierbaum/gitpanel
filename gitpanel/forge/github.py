@@ -102,6 +102,7 @@ class GitHub:
         self._repo: RepoInfo | None = None
         self._base_fetched: dict[str, float] = {}  # base branch → monotonic time of last fetch
         self._fetching: dict[tuple[int, str], asyncio.Task[str]] = {}  # (PR, head sha) in flight
+        self._stack_ext: bool | None = None
 
     @property
     def gh(self) -> Gh:
@@ -223,6 +224,52 @@ class GitHub:
         nodes = ((pr.get("stack") or {}).get("entries") or {}).get("nodes") or []
         nodes = sorted((n for n in nodes if n.get("pullRequest")), key=lambda n: n["position"])
         return [int(n["pullRequest"]["number"]) for n in nodes]
+
+    # -- stacks (the gh-stack extension) -----------------------------------------------------
+    async def has_stack_extension(self) -> bool:
+        """Whether `gh stack` (github/gh-stack) is installed — needed to link and merge."""
+        if self._stack_ext is None:
+            res = await self.gh.run("extension", "list", check=False)
+            self._stack_ext = res.ok and "gh-stack" in res.stdout
+        return self._stack_ext
+
+    async def _need_stack_extension(self) -> None:
+        if not await self.has_stack_extension():
+            raise ForgeError(
+                "Stacked PRs need the gh stack extension",
+                "Install it with: gh extension install github/gh-stack",
+            )
+
+    async def stack_link(self, items: Sequence[str], *, base: str | None = None) -> str:
+        """`gh stack link` — make PRs / branches (bottom → top) a GitHub stack, or append to
+        stack N when the first item is its number. Branches are pushed and get draft PRs."""
+        await self._need_stack_extension()
+        args = ["stack", "link"]
+        if base:
+            args += ["--base", base]
+        res = await self.gh.run(*args, *items, read_only=False)
+        return res.stdout.strip()
+
+    async def stack_merge(self, pr_number: int, method: MergeMethod) -> str:
+        """`gh stack merge` — merge this PR and everything below it in its stack, all or
+        nothing (GitHub's atomic stack merge)."""
+        await self._need_stack_extension()
+        res = await self.gh.run(
+            "stack", "merge", str(pr_number), "--yes", "--merge-method", method, read_only=False
+        )
+        return res.stdout.strip()
+
+    async def retarget(self, number: int, base: str) -> None:
+        await self.gh.run("pr", "edit", str(number), "--base", base, read_only=False)
+
+    async def recently_merged(self, base: str, limit: int = 30) -> list[PullRequest]:
+        """PRs recently merged into `base` (their head sha marks where a stacked child's own
+        commits start after a squash merge)."""
+        data = await self.gh.json(
+            "pr", "list", "--state", "merged", "--base", base, "--limit", str(limit),
+            "--json", LIST_FIELDS,
+        )  # fmt: skip
+        return [PullRequest.parse(d) for d in data or []]
 
     async def current_pr(self) -> PullRequest | None:
         """The open PR for the checked-out branch, if any."""

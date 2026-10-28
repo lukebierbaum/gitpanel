@@ -85,6 +85,89 @@ def matches(pr: dict, state: dict, search: str) -> bool:
     return True
 
 
+def new_pr(state: dict, head: str, base: str, title: str, *, draft: bool) -> dict:
+    n = max([p["number"] for p in state["prs"]] + [0]) + 1
+    sha = git("--git-dir", state["bare"], "rev-parse", f"refs/heads/{head}").strip()
+    git("--git-dir", state["bare"], "update-ref", f"refs/pull/{n}/head", sha)
+    pr = {
+        "number": n, "title": title, "author": {"login": state["me"]}, "state": "OPEN",
+        "isDraft": draft, "headRefName": head, "baseRefName": base, "headRefOid": sha,
+        "additions": 1, "deletions": 0, "changedFiles": 1, "reviewDecision": "REVIEW_REQUIRED",
+        "statusCheckRollup": [], "labels": [],
+        "url": f"https://github.com/acme/widgets/pull/{n}",
+        "updatedAt": "2026-10-20T10:00:00Z", "createdAt": "2026-10-20T10:00:00Z",
+        "isCrossRepository": False, "headRepositoryOwner": {"login": "acme"}, "body": "",
+        "reviewRequests": [], "latestReviews": [], "comments": [], "assignees": [],
+    }  # fmt: skip
+    state["prs"].append(pr)
+    return pr
+
+
+def stack_link(state: dict, args: list[str]) -> None:
+    """gh stack link [--base B] <stack-number | branch-or-pr>…: push branches, open draft PRs
+    with chained bases, make or extend a stack."""
+    base = opt(args, "--base") or state["repo"]["defaultBranchRef"]["name"]
+    items = [a for i, a in enumerate(args) if not a.startswith("--") and args[i - 1] != "--base"]
+    stacks = state.setdefault("stacks", [])
+    target = None
+    if items and items[0].isdigit() and any(st["number"] == int(items[0]) for st in stacks):
+        target = next(st for st in stacks if st["number"] == int(items[0]))
+        items = items[1:]
+    numbers: list[int] = list(target["prs"]) if target else []
+    for item in items:
+        pr = next((p for p in state["prs"] if item.isdigit() and p["number"] == int(item)), None)
+        if pr is None:  # a branch: push it and open a draft PR on top of the previous one
+            git("push", "-q", "origin", f"refs/heads/{item}:refs/heads/{item}")
+            prev = find(state, str(numbers[-1]))["headRefName"] if numbers else base
+            pr = new_pr(state, item, prev, item, draft=True)
+        if pr["number"] not in numbers:
+            numbers.append(pr["number"])
+    if target is None:
+        target = next((st for st in stacks if set(st["prs"]) & set(numbers)), None)
+    if target is None:
+        target = {"number": 1000 + len(stacks), "base": base, "prs": []}
+        stacks.append(target)
+    target["prs"] = numbers
+    save(state)
+    print(f"Stack #{target['number']}: " + " ".join(f"#{n}" for n in numbers))
+
+
+def stack_merge(state: dict, args: list[str]) -> None:
+    """gh stack merge <pr> --yes --merge-method M: merge the PR and everything below it in its
+    stack, all or nothing; the base branch on the 'GitHub' repo moves like GitHub's would."""
+    number = int(args[0])
+    method = opt(args, "--merge-method", "squash")
+    stack = next((st for st in state.get("stacks", []) if number in st["prs"]), None)
+    if stack is None:
+        fail(f"#{number} is not in a stack")
+    upto = stack["prs"][: stack["prs"].index(number) + 1]
+    prs = [find(state, str(n)) for n in upto]
+    for pr in prs:
+        if pr["isDraft"] or pr["state"] != "OPEN":
+            fail(f"#{pr['number']} can't be merged (draft or not open); nothing was merged")
+    bare, base = state["bare"], stack["base"]
+    tip = git("--git-dir", bare, "rev-parse", f"refs/heads/{base}").strip()
+    for pr in prs:
+        head = pr["headRefOid"]
+        if method == "squash":
+            tree = git("--git-dir", bare, "rev-parse", f"{head}^{{tree}}").strip()
+            tip = git(
+                "--git-dir", bare, "-c", "user.name=GitHub", "-c", "user.email=gh@example.com",
+                "commit-tree", tree, "-p", tip, "-m", f"{pr['title']} (#{pr['number']})",
+            ).strip()  # fmt: skip
+        else:
+            tip = head
+        pr["state"] = "MERGED"
+    git("--git-dir", bare, "update-ref", f"refs/heads/{base}", tip)
+    stack["prs"] = stack["prs"][len(upto) :]
+    if stack["prs"]:
+        find(state, str(stack["prs"][0]))["baseRefName"] = base
+    else:
+        state["stacks"].remove(stack)
+    save(state)
+    print(f"Merged {' '.join(f'#{n}' for n in upto)} into {base}")
+
+
 def main(argv: list[str]) -> None:
     # one fake gh at a time (the app runs several concurrently): each reads, changes and
     # writes the whole state file
@@ -93,6 +176,16 @@ def main(argv: list[str]) -> None:
     state = load()
     state.setdefault("calls", []).append(argv)
     save(state)
+    if argv[:2] == ["extension", "list"]:
+        if not state.get("no_stack_extension"):
+            print("gh stack\tgithub/gh-stack\tv0.1.0")
+        return
+    if argv[:2] == ["stack", "link"]:
+        stack_link(state, argv[2:])
+        return
+    if argv[:2] == ["stack", "merge"]:
+        stack_merge(state, argv[2:])
+        return
     if argv[:2] == ["repo", "view"]:
         print(json.dumps(state["repo"]))
         return
@@ -107,6 +200,10 @@ def main(argv: list[str]) -> None:
                 if want == "open" and st != "OPEN":
                     continue
                 if want == "closed" and st == "OPEN":
+                    continue
+                if want == "merged" and st != "MERGED":
+                    continue
+                if opt(rest, "--base") and pr["baseRefName"] != opt(rest, "--base"):
                     continue
                 if matches(pr, state, search):
                     out.append(project(pr, rest))
@@ -195,6 +292,9 @@ def main(argv: list[str]) -> None:
             pr["state"] = "CLOSED"
         elif sub == "reopen":
             pr["state"] = "OPEN"
+        elif sub == "edit":
+            if opt(rest, "--base"):
+                pr["baseRefName"] = opt(rest, "--base")
         elif sub == "ready":
             pr["isDraft"] = "--undo" in rest
         save(state)

@@ -87,3 +87,47 @@ async def test_github_stack_fields(gh_repo):
     assert found[1].stack == StackInfo(7, 1, 2, "main") and found[2].stack.position == 2
     assert await provider.stack_members(2) == [1, 2]
     assert [p.number for p in await provider.open_pr_index()] == [1, 2]
+
+
+async def test_link_merge_and_missing_extension(gh_repo):
+    import pytest
+
+    from gitpanel.forge.runner import ForgeError
+
+    repo = gh_repo.repo
+    repo.checkout("feature/fuzz")
+    repo.git("switch", "-q", "-c", "feature/fuzz-2")
+    repo.commit({"fuzz2.py": "x\n"}, "More fuzzing")
+    repo.checkout("main")
+    session = await RepoSession.open(repo.path)
+    provider = await GH.detect(session)
+    assert provider is not None
+
+    # PR #1 plus a branch without a PR: the branch gets a draft PR based on #1's branch
+    await provider.stack_link(["1", "feature/fuzz-2"], base="main")
+    [stack] = gh_repo.state["stacks"]
+    new = next(p for p in gh_repo.state["prs"] if p["headRefName"] == "feature/fuzz-2")
+    assert stack["prs"] == [1, new["number"]] and new["isDraft"]
+    assert new["baseRefName"] == "feature/fuzz"
+    assert ["stack", "link", "--base", "main", "1", "feature/fuzz-2"] in gh_repo.calls()
+
+    # a draft anywhere below stops the whole merge
+    with pytest.raises(ForgeError):
+        await provider.stack_merge(new["number"], "squash")
+    assert all(p["state"] == "OPEN" for p in gh_repo.state["prs"])
+    # merging the bottom one only
+    await provider.stack_merge(1, "squash")
+    assert next(p for p in gh_repo.state["prs"] if p["number"] == 1)["state"] == "MERGED"
+    assert gh_repo.state["stacks"][0]["prs"] == [new["number"]]
+    assert [p.number for p in await provider.recently_merged("main")] == [1]
+    await provider.retarget(new["number"], "main")
+    assert (
+        next(p for p in gh_repo.state["prs"] if p["number"] == new["number"])["baseRefName"]
+        == "main"
+    )
+
+    gh_repo.update(lambda st: st.update(no_stack_extension=True))
+    provider._stack_ext = None
+    with pytest.raises(ForgeError) as err:
+        await provider.stack_link(["2"])
+    assert "gh extension install github/gh-stack" in (err.value.hint or "")

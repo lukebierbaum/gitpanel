@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -103,6 +104,28 @@ async def push(
     if tags:
         args.append("--follow-tags")
     args += [remote, f"refs/heads/{branch}:refs/heads/{remote_branch or branch}"]
+    return await git.run(*args, env=NO_PROMPT)
+
+
+async def push_many(
+    git: Git,
+    remote: str,
+    branches: Sequence[str],
+    leases: Mapping[str, str],
+    *,
+    atomic: bool = True,
+) -> GitResult:
+    """Push several branches at once, each with `--force-with-lease` against the sha in
+    `leases` (what we last saw on the remote), so a push someone else made in between makes
+    it fail instead of being overwritten. `atomic`: all branches update, or none."""
+    args = ["push", "--porcelain"]
+    if atomic:
+        args.append("--atomic")
+    for b in branches:
+        args.append(
+            f"--force-with-lease={b}:{leases[b]}" if b in leases else f"--force-with-lease={b}"
+        )
+    args += [remote, *(f"refs/heads/{b}:refs/heads/{b}" for b in branches)]
     return await git.run(*args, env=NO_PROMPT)
 
 
