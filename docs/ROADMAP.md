@@ -28,9 +28,9 @@ All ten milestones are implemented — see each `docs/milestones/M*.md` "As buil
 - **Keys:** number keys `1`–`6` for tool windows (Alt+digit is taken by many terminals), several keys per action, Mac-style Option-layout characters mapped back to Alt, `?` key map.
 - **Layout:** draggable, remembered pane dividers; side-by-side diff default from config.
 - **Custom commands** accept arbitrary shell (only known `{placeholders}` are substituted).
+- **M12 — Stacked pull requests** (built): GitHub stacks (`gh stack`) and not-yet-linked chains in the PR window, link / publish them as GitHub stacks, restack in one undo step, atomic stack merges ([notes](milestones/M12.md)).
 
 ### Next
-- **M12 — Stacked pull requests:** GitHub stacks (`gh stack`) and not-yet-linked chains in the PR window, link / publish them as GitHub stacks, restack in one undo step, atomic stack merges ([plan](milestones/M12.md)).
 
 The backlog is the ✗ / ◐ rows in [PARITY.md](PARITY.md) — top of the list: word-level diff highlighting and syntax colours, "diff with working tree", log navigation (go to hash, first-parent / hide merges), remembering the Update Project mode, managing remotes.
 
