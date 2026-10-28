@@ -205,6 +205,16 @@ async def test_stacks_in_the_pr_list(gh_repo):
         await settle(pilot, app)
         assert view.detail.number == 1
 
+        # a column sort keeps stacks together (it orders stacks and the rest)
+        view.pr_list.sort_by("num")  # newest first
+        await settle(pilot, app)
+        assert rows(view) == [
+            "== ⚠ Not a GitHub stack yet | 2 PRs | → main", "#1", "#3",
+            "== Not in a stack", "#2",
+        ]  # fmt: skip
+        view.pr_list.sort_by(None)
+        await settle(pilot, app)
+
         # the same PRs as a GitHub stack
         gh_repo.update(lambda st: st.setdefault("stacks", []).append(
             {"number": 7, "base": "main", "prs": [1, 3]}
@@ -231,6 +241,12 @@ async def test_stacks_in_the_pr_list(gh_repo):
             .get_row_at(3)[3]
             .plain.startswith("└ feature/fuzz-3  no PR yet")
         )
+        # back and forth: the cached Stacks list (with its branch rows) comes back
+        view.query_one("#pr-query").value = "open"
+        await settle(pilot, app)
+        view.query_one("#pr-query").value = "stacks"
+        await settle(pilot, app)
+        assert rows(view)[-1] == "feature/fuzz-3"
 
 
 async def test_stack_that_needs_a_restack_is_marked(gh_repo):

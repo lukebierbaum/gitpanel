@@ -9,9 +9,10 @@ the cursor stays on the same item across refreshes, and the sort order is rememb
 A screen describes its columns (`Col`) and how an item matches the filter; it sets items
 with `set_items()` and reads the highlighted one from `selected`.
 
-With `arrange`, the screen decides the order while no column sort is active: it gets the
-filtered items and returns the rows to show — it may add items back (e.g. the rest of a
-match's group) and put `Group` label rows between them. The cursor skips group rows.
+With `arrange`, the screen has the last word on the rows: it gets the filtered (and, with a
+column sort, sorted) items and returns the rows to show — it may regroup them, add items
+back (e.g. the rest of a match's group) and put `Group` label rows between them. The
+cursor skips group rows.
 """
 
 from __future__ import annotations
@@ -220,11 +221,8 @@ class ListTable(Vertical, Generic[T]):
         if self.sort is not None:
             col = next(c for c in self.columns if c.key == self.sort[0])
             assert col.sort is not None
-            rows = sorted(matched, key=col.sort, reverse=self.sort[1])
-        elif self._arrange is not None:
-            rows = list(self._arrange(matched))
-        else:
-            rows = list(matched)
+            matched = sorted(matched, key=col.sort, reverse=self.sort[1])
+        rows = list(self._arrange(matched)) if self._arrange is not None else list(matched)
         self.shown = rows
         table = self.table
         table.clear()

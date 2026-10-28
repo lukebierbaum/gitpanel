@@ -107,7 +107,7 @@ class PRsView(ToolWindow):
         self._select_after: int | None = None
         self._detected = False
         # caches so revisiting a list or a PR is instant while it refreshes in the background
-        self._lists: dict[tuple[str, str], list[PullRequest]] = {}
+        self._lists: dict[tuple[str, str], list[Item]] = {}
         self._statuses: dict[int, PRStatus] = {}
         self._details: dict[int, tuple[PullRequest, float]] = {}
         self._pending: Timer | None = None
@@ -215,7 +215,7 @@ class PRsView(ToolWindow):
         def title(item: Item) -> Text:
             t = Text()
             at = self._layer_at.get(item_key(item))
-            if at is not None and self.pr_list.sort is None:
+            if at is not None and self._grouping():
                 stack, i = at
                 last = i == len(stack.layers) - 1
                 t.append("  " * stack.layers[i].depth + ("└ " if last else "├ "), style="dim")
@@ -252,12 +252,16 @@ class PRsView(ToolWindow):
         ]  # fmt: skip
 
     # -- stacks ------------------------------------------------------------------------------
+    def _grouping(self) -> bool:
+        return self._query == "stacks" or bool(self.gp.config.pr_stack_view)
+
     def _arrange(self, matched: list[Item]) -> list[Item | Group]:
         """Stacks together under a label row (whole stack kept when one PR matches), then
-        the rest. The Stacks list shows only stacks."""
+        the rest. With a column sort, stacks come in the order of their best-ranked PR and
+        keep their own bottom-to-top order. The Stacks list shows only stacks."""
         stacks_only = self._query == "stacks"
         self._update_stacks()
-        if not self.gp.config.pr_stack_view and not stacks_only:
+        if not self._grouping():
             return list(matched)
         by_key = {item_key(i): i for i in self.pr_list.items}
         rows: list[Item | Group] = []
@@ -515,7 +519,8 @@ class PRsView(ToolWindow):
         keep = self._select_after or (self.detail.number if self.detail else None)
         self._select_after = None
         cached = self._lists.get(key)
-        if cached is not None and [p.number for p in cached] != [p.number for p in self.prs]:
+        shown_keys = [item_key(i) for i in self.pr_list.items]
+        if cached is not None and [item_key(i) for i in cached] != shown_keys:
             self._fill_list(cached, query, keep)
         listing.set_note("loading…")
         try:
@@ -533,7 +538,7 @@ class PRsView(ToolWindow):
         if query == "stacks":
             have = {p.head for p in prs if not p.cross_repo}
             items += [BranchRow(b) for st in self._local for b in st.branches if b not in have]
-        self._lists[key] = items  # type: ignore[assignment]
+        self._lists[key] = items
         listing.show_message(None)
         listing.set_note(f"updated {datetime.now():%H:%M}")
         self._fill_list(items, query, keep, force=True)
