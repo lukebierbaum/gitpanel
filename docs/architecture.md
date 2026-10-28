@@ -38,14 +38,19 @@ gitpanel/
     console.py                # Console/ConsoleEntry: recorded commands + output for the Console window
   forge/                      # code-hosting integrations (no Textual), used by actions/prs.py
     runner.py                 # Gh: runs `gh`, explains errors (ForgeError), reports to CONSOLE (kind "gh")
-    models.py                 # PullRequest, Check, Review, Comment, ReviewThread
-    github.py                 # GitHub provider + local side (fetch pull/N/head → refs/gitpanel/pr/N)
+    models.py                 # PullRequest, Check, Review, Comment, ReviewThread, PRStatus, StackInfo
+    github.py                 # GitHub provider + local side (fetch pull/N/head → refs/gitpanel/pr/N);
+                              # gh stack link / merge, retarget
+    stacks.py                 # build_stacks: GitHub stacks, chained PRs, local stacks (pure)
+    filters.py                # PR list filter (GitHub search syntax)
     session.py                # RepoSession, Worktree, ChangeKind
     models.py                 # shared dataclasses (Commit, Ref, FileStatus, StashEntry, …)
     journal.py                # Journal, JournalEntry, HeadState
     operations.py             # OperationState, OpKind, detect()
     patch.py                  # DiffSource, FileDiff, Hunk, DiffLine, Selection, build_patch(), apply()
     scripted_rebase.py        # TodoItem, run()
+    stack.py                  # gh-stack's record (read-only), local chains, nearest_base,
+                              # restack(): a whole stack in one scripted rebase (update-ref per layer)
     _editor.py                # GIT_EDITOR / GIT_SEQUENCE_EDITOR helper (python -m gitpanel.git._editor)
     markers.py                # Marker, MarkerProvider, built-in providers
     status.py  log.py  graph.py  refs.py  remote.py  commit.py  cherry_pick.py

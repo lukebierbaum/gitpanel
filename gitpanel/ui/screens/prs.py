@@ -33,7 +33,8 @@ from ...git import patch as P
 from ...git.graph import GraphRow
 from ...git.log import LogFilter, load_page
 from ...git.markers import PickedMarkers, RefMarkers, collect
-from ...git.stack import LocalStack, local_chains, read_gh_stack
+from ...git.remote import NO_PROMPT
+from ...git.stack import LocalStack, is_ancestor, local_chains, read_gh_stack
 from ..base import ToolWindow
 from ..colors import CHECK_ICON, CI_ICON, C
 from ..fmt import ago, fmt_duration, plural
@@ -118,6 +119,7 @@ class PRsView(ToolWindow):
         self._local: list[LocalStack] = []
         self._stacks: list[Stack] = []
         self._layer_at: dict[str, tuple[Stack, int]] = {}  # item key → (stack, layer index)
+        self._needs_restack: dict[str, tuple[bool, float]] = {}  # stack key → (needs, checked at)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="pr-main"):
@@ -346,7 +348,46 @@ class PRsView(ToolWindow):
                 icon, color = CI_ICON[st.ci]
                 t.append(f" {icon}", style=C[color])
         t.append(f"   {i + 1} of {len(stack.layers)}  ·  [ ] move", style="dim")
+        needs = self._needs_restack.get(stack.key)
+        if needs is not None and needs[0]:
+            t.append("   ⟲ needs restack — S", style=f"bold {C.warn}")
         return t
+
+    @work(exclusive=True, group="prs-stack-check")
+    async def check_stack(self, stack: Stack) -> None:
+        """Whether a layer no longer contains the one below it (or its base is gone): the
+        stack needs a restack. Fetches the stack's branches, at most once a minute."""
+        session = self.gp.session
+        if session is None or self.provider is None or len(stack.layers) < 1:
+            return
+        seen = self._needs_restack.get(stack.key)
+        if seen is not None and time.monotonic() - seen[1] < INDEX_TTL:
+            return
+        git = session.git
+        remote = await self.provider.remote_name()
+        names = {stack.base, *(ly.branch for ly in stack.layers if ly.pr is not None)}
+        await git.run(
+            "fetch", "--quiet", "--no-tags", remote,
+            *(f"+refs/heads/{b}:refs/remotes/{remote}/{b}" for b in sorted(names)),
+            check=False, env=NO_PROMPT,
+        )  # fmt: skip
+        # the base branch is gone (its PR was merged); being behind the base is fine
+        needs = not await git.try_rev_parse(f"refs/remotes/{remote}/{stack.base}")
+        prev: str | None = None
+        for layer in stack.layers:
+            ref = None
+            for cand in (f"refs/remotes/{remote}/{layer.branch}", f"refs/heads/{layer.branch}"):
+                if await git.try_rev_parse(cand):
+                    ref = cand
+                    break
+            if ref is None:
+                continue
+            if prev is not None and not await is_ancestor(git, prev, ref):
+                needs = True  # a layer no longer contains the one below it
+            prev = ref
+        self._needs_restack[stack.key] = (needs, time.monotonic())
+        if self.detail is not None and self.stack_of(self.detail) is not None:
+            self._render_overview(self.detail)
 
     def stack_move(self, delta: int) -> None:
         """Select the PR below (-1) / above (+1) the current one in its stack."""
@@ -635,6 +676,9 @@ class PRsView(ToolWindow):
             self._loaded_tabs.clear()
             self._clear_detail()
         self._render_overview(pr)
+        at = self.stack_of(pr)
+        if at is not None and not partial:
+            self.check_stack(at[0])
         if partial:
             self.query_one("#pr-body", Markdown).update("*Loading…*")
         else:
@@ -860,6 +904,12 @@ class PRsView(ToolWindow):
         if pr is not None:
             form["pr"] = pr
             at = self.stack_of(pr)
+            if at is not None:
+                form["stack"], form["stack_index"] = at
+        selected = self.pr_list.selected
+        if isinstance(selected, BranchRow) and focused is self.query_one("#pr-list", DataTable):
+            form["branch_row"] = selected
+            at = self._layer_at.get(item_key(selected))
             if at is not None:
                 form["stack"], form["stack_index"] = at
         if focused is self.query_one("#pr-list", DataTable):

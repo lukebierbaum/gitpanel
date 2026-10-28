@@ -17,6 +17,7 @@ from . import (
     rebase,
     remote,
     shelf,
+    stacks,
     worktrees,
 )
 
@@ -34,6 +35,7 @@ def register_builtin(registry: Registry) -> Registry:
         rebase,
         patches,
         prs,
+        stacks,
         branches,
         remote,
         worktrees,

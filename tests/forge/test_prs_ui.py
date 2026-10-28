@@ -231,3 +231,27 @@ async def test_stacks_in_the_pr_list(gh_repo):
             .get_row_at(3)[3]
             .plain.startswith("└ feature/fuzz-3  no PR yet")
         )
+
+
+async def test_stack_that_needs_a_restack_is_marked(gh_repo):
+    from tests.forge.test_stack_actions import add_pr
+
+    add_pr(gh_repo, 3, "feature/fuzz-2", "feature/fuzz", {"fuzz2.py": "2\n"})
+    # review fixes on the bottom layer, after #3 was built on it
+    repo = gh_repo.repo
+    repo.checkout("feature/fuzz")
+    repo.commit({"fuzz.py": "import random, sys\n"}, "Review fixes")
+    repo.git("push", "-q", "origin", "feature/fuzz")
+    repo.checkout("main")
+    app = GitPanelApp(repo.path, config=Config(pr_default_query="open"))
+    async with app.run_test(size=(160, 40)) as pilot:
+        await settle(pilot, app)
+        await pilot.press("7")
+        await settle(pilot, app)
+        await settle(pilot, app)
+        view = app.view
+        assert view.detail.number == 1
+        meta = str(view.query_one("#pr-meta").render())
+        assert "⟲ needs restack — S" in meta
+        hints = app.query_one("#hints").text
+        assert "Restack" in hints and "Make GitHub Stack" in hints

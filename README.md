@@ -143,11 +143,15 @@ Panes can be resized by dragging the thin dividers between them — including th
 `/` filter (name, branch, path, or words like `dirty`, `locked`, `rebase`) · `>`/`<` sort · `n` new · `enter` switch · `d` remove · `m` move · `l` lock · `s` open a shell there · `y` copy path. In the Branches popup, `ctrl+w` makes a worktree for a branch.
 
 ### Pull requests (`7`)
-Needs the [GitHub CLI](https://cli.github.com) (`gh auth login`). Lists *Mine · Review requested · Assigned · All open · Closed* with CI and review status; the current branch's PR shows in the header (`PR #12 ✓`). The list appears first and CI/review fill in a moment later; a PR's commits are fetched in the background as soon as you select it.
+Needs the [GitHub CLI](https://cli.github.com) (`gh auth login`); linking and merging stacks also need its `gh stack` extension (`gh extension install github/gh-stack`). Lists *Mine · Review requested · Assigned · All open · Closed* with CI and review status; the current branch's PR shows in the header (`PR #12 ✓`). The list appears first and CI/review fill in a moment later; a PR's commits are fetched in the background as soon as you select it.
 
 | Key | |
 |---|---|
 | stacks | stacked PRs are kept together under a label — **`Stack #7`** for GitHub stacks (`gh stack`), **`⚠ Not a GitHub stack yet`** for PRs whose bases chain onto each other or local branches stacked with `gh stack init`; the *Stacks* list shows every stack in the repo, and `[` / `]` move down / up a stack |
+| `L` | make it a GitHub stack — link chained PRs, publish local branches (pushed, draft PRs), or add local branches on top of a GitHub stack |
+| `N` | new branch on top of this layer; `n` on a stacked branch suggests the PR below as base and offers to join its stack |
+| `S` | restack: rebase every layer onto its new base in one step (one `z` undoes it; conflicts go through the resolver), then push them all — asked first, `--force-with-lease`, atomic. Handles squash-merged layers below. `⟲ needs restack` shows when it's due |
+| `M` on a stacked PR | GitHub's atomic stack merge: the top PR merges the whole stack; a middle PR merges itself and everything below (or the whole stack); the bottom PR asks: whole stack or just itself |
 | `/` | filter the list as you type — words, `author:` `label:` `base:` `head:` `status:failure` `review:approved` `draft:false`, `-` to exclude; `enter` runs it as a GitHub search, `escape` clears |
 | `>` / `<` | sort by the next column / reverse it (or click a column header; again to reverse) |
 | `enter` | check out the PR (Smart / Force Checkout if local changes are in the way) |
@@ -185,6 +189,7 @@ refresh_seconds = 180          # refresh the PR window while it's visible (0 = m
 default_query = "mine"         # mine | review | assigned | open | closed
 merge_method = "squash"        # default in the merge dialog
 stack_view = true              # keep stacked PRs together in the list
+restack_push = "ask"           # ask | always | never — push the branches after a restack
 
 [worktrees]
 path_template = "../{repo}.worktrees/{branch}"

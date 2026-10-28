@@ -7,10 +7,12 @@ from typing import Any
 
 from ...forge.github import GitHub, detect
 from ...forge.models import PullRequest
+from ...forge.runner import ForgeError
 from ...git import refs as R
 from ...git import remote as RM
 from ...git import worktrees as W
 from ...git.journal import snapshot_worktree
+from ...git.stack import nearest_base
 from ..context import Scope, SelectionContext
 from ..registry import Action, ActionEnv, ActionError
 from ..ui_protocol import Field
@@ -194,11 +196,21 @@ async def create_pr_flow(env: ActionEnv, branch: str | None = None) -> None:
             return
         await RM.push(git, branch, remote, set_upstream=local.upstream is None)
     base = info.default_branch
+    since = f"{remote}/{base}"
+    # stacked on another PR's branch? then that's the base, and maybe its GitHub stack
+    stack_number = None
+    parent = await _stack_parent(provider, git, branch, remote)
+    if parent is not None:
+        parent_pr, since = parent
+        base = parent_pr.head
+        found = (await provider.statuses([parent_pr.number])).get(parent_pr.number)
+        if found is not None and found.stack is not None:
+            stack_number = found.stack.number
     res = await git.run(
         "log",
         "--reverse",
         "--format=%s%x1f%b%x1e",
-        f"{remote}/{base}..{branch}",
+        f"{since}..{branch}",
         check=False,
         read_only=True,
     )
@@ -216,6 +228,11 @@ async def create_pr_flow(env: ActionEnv, branch: str | None = None) -> None:
             Field("title", "Title", default=title),
             Field("reviewers", "Reviewers (comma separated)", placeholder="octocat, hubot"),
             Field("draft", "Draft", "bool", False),
+            *(
+                [Field("join", f"Add to Stack #{stack_number} (on top)", "bool", True)]
+                if stack_number is not None
+                else []
+            ),
         ],
         body=(f"{len(commits)} commit(s):\n" + "\n".join(f"  {s}" for s in subjects[:15])),
         ok_label="Continue",
@@ -236,11 +253,35 @@ async def create_pr_flow(env: ActionEnv, branch: str | None = None) -> None:
     )
     env.ui.notify(f"Created {url}")
     number = int(url.rstrip("/").rsplit("/", 1)[-1]) if url.rsplit("/", 1)[-1].isdigit() else None
+    if stack_number is not None and answer.get("join") and number is not None:
+        await provider.stack_link([str(stack_number), str(number)])
+        env.ui.notify(f"#{number} added to Stack #{stack_number}")
     _refresh(env, number)
 
 
+async def _stack_parent(
+    provider: GitHub, git: Any, branch: str, remote: str
+) -> tuple[PullRequest, str] | None:
+    """The open PR whose branch `branch` is built on most directly, with the ref used."""
+    try:
+        index = await provider.open_pr_index()
+    except ForgeError:
+        return None
+    refs: dict[str, PullRequest] = {}
+    for p in index:
+        if p.cross_repo or p.head == branch:
+            continue
+        for ref in (f"refs/heads/{p.head}", f"refs/remotes/{remote}/{p.head}"):
+            if await git.try_rev_parse(ref):
+                refs[ref] = p
+                break
+    nearest = await nearest_base(git, branch, list(refs))
+    return (refs[nearest], nearest) if nearest else None
+
+
 async def _create(env: ActionEnv) -> None:
-    await create_pr_flow(env)
+    row = env.ctx.form.get("branch_row")  # a stack layer without a PR yet
+    await create_pr_flow(env, row.branch if row is not None else None)
 
 
 async def _create_for_branch(env: ActionEnv) -> None:
@@ -280,6 +321,12 @@ async def _comment(env: ActionEnv) -> None:
 
 async def _merge(env: ActionEnv) -> None:
     provider, pr = _need(env)
+    stack = env.ctx.form.get("stack")
+    if stack is not None and stack.kind in ("github", "chain") and pr.number in stack.prs:
+        from .stacks import merge_stacked
+
+        await merge_stacked(env, provider, pr, stack)
+        return
     if not pr.detailed:  # the warnings below need mergeability, checks and reviews
         pr = await provider.pr(pr.number)
     default = env.setting("merge_method", "squash")
