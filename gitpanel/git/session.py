@@ -11,7 +11,7 @@ from enum import Flag, auto
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .runner import Git
+from .runner import Git, GitError
 
 if TYPE_CHECKING:
     from .journal import Journal
@@ -28,6 +28,11 @@ class ChangeKind(Flag):
     OPERATION = auto()
     WORKTREES = auto()
     ALL = INDEX | WORKTREE | HEAD | REFS | STASH | CONFIG | OPERATION | WORKTREES
+
+
+class WorktreeGone(Exception):
+    """The active worktree can't be used any more (its folder or its repository was moved
+    or deleted) and no other worktree of the repository is left to switch to."""
 
 
 @dataclass(frozen=True)
@@ -129,8 +134,39 @@ class RepoSession:
         return parse_worktree_list(res.stdout)
 
     async def refresh_active(self) -> Worktree:
-        self.active = await self._find_worktree(self.active.path)
-        return self.active
+        """Re-read the active worktree. If it's unusable (its folder was moved or deleted,
+        or git can no longer read it), switch to another worktree of the repository that
+        still exists — main first — like `switch()` (so ChangeKind.ALL is emitted); the
+        caller sees `active.path` change. Raises WorktreeGone when there is none."""
+        try:
+            self.active = await self._find_worktree(self.active.path)
+            return self.active
+        except GitError as e:
+            reason = str(e)
+        gone = self.active.path
+        if not self.common_dir.is_dir():
+            raise WorktreeGone(
+                f"{gone}: its repository {self.common_dir} no longer exists — moved or "
+                f"deleted? ({reason}). If you moved it, open it from its new location; "
+                "linked worktrees are re-attached with `git worktree repair` there."
+            )
+        try:
+            res = await Git(self.common_dir).run(
+                "worktree", "list", "--porcelain", "-z", read_only=True
+            )
+            candidates = parse_worktree_list(res.stdout)
+        except GitError:
+            candidates = []
+        candidates.sort(key=lambda w: not w.is_main)
+        for wt in candidates:
+            if wt.bare or wt.path == gone or not wt.path.is_dir():
+                continue
+            try:
+                await self.switch(wt.path)
+            except (GitError, ValueError):
+                continue
+            return self.active
+        raise WorktreeGone(f"{gone}: {reason}, and no other worktree of the repository is left")
 
     async def switch(self, path: Path | str) -> None:
         path = Path(path).resolve()
@@ -150,7 +186,8 @@ class RepoSession:
     def private_dir(self, *, shared: bool = False) -> Path:
         base = self.common_dir if shared else self.git_dir
         d = base / "gitpanel"
-        d.mkdir(parents=True, exist_ok=True)
+        if base.is_dir():  # never re-create a git dir that was moved or deleted
+            d.mkdir(exist_ok=True)
         return d
 
     @property

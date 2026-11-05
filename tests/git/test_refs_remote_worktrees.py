@@ -8,7 +8,7 @@ from gitpanel.git import refs as R
 from gitpanel.git import remote as RM
 from gitpanel.git import tags as T
 from gitpanel.git import worktrees as W
-from gitpanel.git.runner import GitError
+from gitpanel.git.runner import Git, GitError
 from gitpanel.git.session import RepoSession
 
 
@@ -176,3 +176,17 @@ async def test_worktree_lifecycle(repo, tmp_path):
     assert any(w.prunable is not None for w in await session.worktrees())
     await W.prune(git)
     assert len(await session.worktrees()) == 2
+
+
+async def test_summary_flags_worktree_whose_repository_moved(repo, tmp_path):
+    wt_path = repo.worktree("feat", "feat")
+    session = await RepoSession.open(repo.path)
+    wt = next(w for w in await session.worktrees() if not w.is_main)
+    moved = tmp_path / "moved"
+    repo.path.rename(moved)  # e.g. ~/hmnd/ubuntu_config → ~/code/thedotfiles
+    s = await W.summary(wt)
+    assert s.broken is not None and "gitfile" in s.broken
+    assert not s.missing and not s.dirty
+    await W.repair(Git(moved))  # from the repository's new place
+    assert (await W.summary(wt)).broken is None
+    assert wt_path.exists()

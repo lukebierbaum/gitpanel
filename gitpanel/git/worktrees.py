@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .operations import OperationState, detect
-from .runner import Git
+from .runner import Git, GitError
 from .session import Worktree
 from .status import status
 
@@ -89,6 +89,9 @@ class WorktreeSummary:
     upstream: str | None = None
     operation: OperationState | None = None
     missing: bool = False
+    # git's error when the worktree can't be read, e.g. its `.git` file points at a main
+    # repository that has moved (`git worktree repair` fixes the links)
+    broken: str | None = None
 
     @property
     def dirty(self) -> bool:
@@ -101,7 +104,11 @@ async def summary(wt: Worktree) -> WorktreeSummary:
     if not wt.path.exists():
         return WorktreeSummary(missing=True)
     git = Git(wt.path)
-    st = await status(git)
+    try:
+        st = await status(git)
+        operation = await detect(git)
+    except GitError as e:
+        return WorktreeSummary(broken=str(e))
     return WorktreeSummary(
         staged=sum(1 for f in st.files if f.has_staged),
         unstaged=sum(1 for f in st.files if f.has_unstaged and not f.untracked and not f.unmerged),
@@ -110,7 +117,7 @@ async def summary(wt: Worktree) -> WorktreeSummary:
         ahead=st.branch.ahead,
         behind=st.branch.behind,
         upstream=st.branch.upstream,
-        operation=await detect(git),
+        operation=operation,
     )
 
 

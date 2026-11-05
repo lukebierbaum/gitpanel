@@ -121,6 +121,7 @@ Rules:
 - Always pass `-c color.ui=false -c core.quotepath=false`; use `-z` and NUL-separated formats wherever git offers them.
 - Network commands (fetch/pull/push) run with `GIT_TERMINAL_PROMPT=0` first; on auth failure the UI offers to rerun via `Ui.run_in_terminal()` in the real terminal so credential prompts work.
 - Cancellation: cancelling the awaiting task kills the subprocess.
+- A working folder that no longer exists (moved or deleted) fails like git does — a `GitError` (`fatal: cannot change to '<cwd>'`), not `FileNotFoundError` — so the usual GitError handling covers it.
 
 ## 4. Session, worktrees and change events (`git/session.py`)
 
@@ -158,12 +159,18 @@ class RepoSession:
     async def open(cls, path: Path) -> RepoSession: ...
     async def worktrees(self) -> list[Worktree]: ...
     async def switch(self, path: Path) -> None: ...  # re-binds git/journal, emits ChangeKind.ALL
+    async def refresh_active(self) -> Worktree: ...
+    # re-reads the active worktree; if it's unusable (folder moved/deleted, `.git` link stale)
+    # it switches to another worktree that still exists (main first) like switch(), or
+    # raises WorktreeGone when none is left (e.g. the whole repository was moved). The app
+    # notifies on a fallback, reports WorktreeGone once and skips the refresh.
     def subscribe(self, cb: Callable[[ChangeKind], None]) -> Callable[[], None]: ...
     def emit(self, kinds: ChangeKind) -> None: ...
     def private_dir(self, *, shared: bool = False) -> Path:
         ...
         # shared=False → <git-dir>/gitpanel   (per worktree: journal, messages)
         # shared=True  → <common-dir>/gitpanel (repo-wide: shelf, changelists, favourites)
+        # created on demand, but never re-creates a git dir that has been moved or deleted
 ```
 
 External change detection: a watcher task polls mtimes of `index`, `HEAD`, `packed-refs`, `refs/` (recursive dir mtimes), `logs/HEAD`, operation marker files and `worktrees/` every 1 s while the app has focus, and emits the matching `ChangeKind`s. Screens refresh on events only — never on timers of their own.
