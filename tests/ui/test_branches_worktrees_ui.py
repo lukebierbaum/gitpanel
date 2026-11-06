@@ -142,3 +142,36 @@ async def test_repository_moved_while_open_reports_once(repo, tmp_path):
         await pilot.pause(0.05)
         await settle(pilot, app)
         assert app.is_running
+
+
+async def test_git_errors_in_workers_are_reported_not_fatal(repo, tmp_path):
+    import pytest
+    from textual.worker import WorkerFailed
+
+    from gitpanel.git.runner import Git
+    from gitpanel.ui.dialogs import ErrorDialog
+
+    async def fails() -> None:
+        await Git(tmp_path / "nowhere").run("status", read_only=True)
+
+    app = GitPanelApp(repo.path)
+    async with app.run_test(size=(150, 45)) as pilot:
+        await settle(pilot, app)
+        app.run_worker(fails())
+        app.run_worker(fails())
+        await settle(pilot, app)
+        assert app.is_running
+        dialogs = [s for s in app.screen_stack if isinstance(s, ErrorDialog)]
+        assert len(dialogs) == 1  # the same error isn't stacked twice
+        assert dialogs[0].title_text.startswith("fatal: cannot change to")
+        assert "$ git status" in dialogs[0].details
+
+    async def breaks() -> None:
+        raise RuntimeError("not a git problem")
+
+    app = GitPanelApp(repo.path)
+    with pytest.raises(WorkerFailed, match="not a git problem"):  # other bugs still exit
+        async with app.run_test(size=(150, 45)) as pilot:
+            await settle(pilot, app)
+            app.run_worker(breaks())
+            await pilot.pause(0.05)

@@ -46,4 +46,5 @@ Add dependencies with `pixi add <pkg>` (conda-forge) or `pixi add --pypi <pkg>` 
 - Window/screen header bars are `ui/widgets/title_bar.py` `TitleBar.set(title, *info, keys=[...], below=...)`.
 - A change's files beside a diff use `ui/widgets/file_list.py` `FileList` (`set_files(source, diffs)`, handle `FileList.Selected`).
 - Widget bindings that only sometimes apply (e.g. `escape` clearing a selection) raise `textual.actions.SkipAction` when there's nothing to do, so the key reaches the screen.
+- Load data in `@work` workers (a `GitError` there becomes an error dialog); an event handler that `await`s git itself must catch `GitError`, or the app exits.
 - Key defaults follow PyCharm where the terminal allows (e.g. `ctrl+k` commit); document deviations next to the action.

@@ -13,6 +13,7 @@ from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.widgets import ContentSwitcher, Static, Tab, Tabs
+from textual.worker import WorkerFailed
 
 from ..actions.builtin import register_builtin
 from ..actions.context import SelectionContext
@@ -413,6 +414,27 @@ class GitPanelApp(App[None]):
 
     def show_error(self, title: str, details: str) -> None:
         self.push_screen(ErrorDialog(title, details))
+
+    def _handle_exception(self, error: Exception) -> None:
+        # Textual sends every unhandled error here and exits. A git command failing in a
+        # background load (repository moved, a ref deleted under us …) is reported instead:
+        # the worker simply ends. Only workers — after a failing message handler Textual
+        # has already stopped that widget's message loop, so those still exit; handlers
+        # that await git catch GitError themselves.
+        if isinstance(error, WorkerFailed) and isinstance(error.error, GitError):
+            self.report_git_error(error.error)
+            return
+        super()._handle_exception(error)
+
+    def report_git_error(self, e: GitError) -> None:
+        """Show a failed git command without stacking the same error twice; while the
+        repository is known to be unreadable (see the header) a toast is enough."""
+        if self._gone is not None:
+            self.notify(str(e), severity="error", timeout=6)
+            return
+        if any(isinstance(s, ErrorDialog) and s.title_text == str(e) for s in self.screen_stack):
+            return
+        self.show_error(str(e), e.details)
 
     async def show_output(self, title: str, stream: AsyncIterator[str]) -> int:
         return await self.push_screen(OutputDialog(title, stream), wait_for_dismiss=True)
