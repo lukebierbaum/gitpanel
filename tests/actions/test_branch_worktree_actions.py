@@ -89,6 +89,34 @@ async def test_push_dialog_and_fetch(env, tmp_path):
     assert ui.notifications[-1] == ("information", "Fetched all remotes")
 
 
+async def test_push_branch_tracking_main_defaults_to_new_branch(env):
+    repo, session, ui, d = env
+    repo.bare_remote()
+    repo.git("push", "-q", "-u", "origin", "main")
+    repo.git("switch", "-q", "-c", "feature", "origin/main")  # tracks origin/main
+    repo.commit({"f.txt": "f\n"}, "feature work")
+    await session.refresh_active()
+    main_sha = repo.git("rev-parse", "origin/main").strip()
+    ui.form_answers = [{}]
+    await d.dispatch_id("remote.push", SelectionContext(session))
+    title, fields, body = ui.forms[-1]
+    defaults = {f.name: f.default for f in fields}
+    assert defaults["remote_branch"] == "feature" and defaults["set_upstream"] is True
+    assert body.startswith("feature → origin/feature  (tracks origin/main)")
+    assert title == "Push 1 commit"
+    assert repo.git("rev-parse", "origin/main").strip() == main_sha
+    assert repo.git("rev-parse", "--abbrev-ref", "feature@{u}").strip() == "origin/feature"
+
+    # push.default=upstream opts back into pushing onto the tracked branch
+    repo.git("switch", "-q", "-c", "other", "origin/main")
+    repo.git("config", "push.default", "upstream")
+    await session.refresh_active()
+    ui.form_answers = [None]
+    await d.dispatch_id("remote.push", SelectionContext(session))
+    defaults = {f.name: f.default for f in ui.forms[-1][1]}
+    assert defaults["remote_branch"] == "main" and defaults["set_upstream"] is False
+
+
 async def test_auth_failure_offers_terminal(env):
     repo, session, ui, d = env
     repo.git("remote", "add", "origin", "https://127.0.0.1:9/nope.git")

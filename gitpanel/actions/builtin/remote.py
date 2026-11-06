@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ...git import refs as R
 from ...git import remote as RM
-from ...git.runner import GitError
+from ...git.runner import Git, GitError
 from ..registry import Action, ActionEnv, ActionError
 from ..ui_protocol import Field
 from .network import with_auth_retry
@@ -50,6 +50,11 @@ async def _update(env: ActionEnv) -> None:
     env.ui.notify("Project updated")
 
 
+async def _push_default(git: Git) -> str:
+    res = await git.run("config", "--get", "push.default", check=False, read_only=True)
+    return res.text.strip() if res.ok else "simple"
+
+
 async def push_flow(env: ActionEnv, branch: str | None = None) -> bool:
     """PyCharm's Push dialog for `branch` (default: current). Returns True when pushed."""
     git = env.session.git
@@ -61,16 +66,28 @@ async def push_flow(env: ActionEnv, branch: str | None = None) -> bool:
         raise ActionError("No remotes configured")
     info = next((b for b in await R.branches(git) if b.short == branch and b.is_local), None)
     upstream = info.upstream_short if info else None
-    commits = await RM.outgoing(git, branch, upstream)
     target_remote = upstream.split("/", 1)[0] if upstream else remotes[0].name
-    target_branch = upstream.split("/", 1)[1] if upstream else branch
+    target_branch = branch
+    if upstream:
+        up_branch = upstream.split("/", 1)[1]
+        # A branch started from e.g. origin/main tracks origin/main; like git's default
+        # push.default=simple, push it to a same-named branch rather than onto main —
+        # unless the user has opted into push.default=upstream.
+        if up_branch == branch or await _push_default(git) in ("upstream", "tracking"):
+            target_branch = up_branch
+    to_upstream = upstream is not None and f"{target_remote}/{target_branch}" == upstream
+    base = upstream
+    if not to_upstream and await git.try_rev_parse(f"refs/remotes/{target_remote}/{branch}"):
+        base = f"{target_remote}/{branch}"
+    commits = await RM.outgoing(git, branch, base)
     lines = [f"{c.short}  {c.subject}" for c in commits[:40]]
     if len(commits) > 40:
         lines.append(f"… and {len(commits) - 40} more")
-    body = f"{branch} → {target_remote}/{target_branch}\n\n" + (
-        "\n".join(lines) if lines else "No commits to push."
-    )
-    if info is not None and info.behind:
+    head = f"{branch} → {target_remote}/{target_branch}"
+    if upstream and not to_upstream:
+        head += f"  (tracks {upstream})"
+    body = f"{head}\n\n" + ("\n".join(lines) if lines else "No commits to push.")
+    if to_upstream and info is not None and info.behind:
         body += f"\n\n⚠ {upstream} has {info.behind} commit(s) you don't have."
     answer = await env.ui.form(
         f"Push {len(commits)} commit{'s' if len(commits) != 1 else ''}",
@@ -83,7 +100,7 @@ async def push_flow(env: ActionEnv, branch: str | None = None) -> bool:
                 options=[(r.name, f"{r.name}  {r.push_url}") for r in remotes],
             ),
             Field("remote_branch", "Remote branch", default=target_branch),
-            Field("set_upstream", "Set upstream", "bool", upstream is None),
+            Field("set_upstream", "Set upstream", "bool", not to_upstream),
             Field("force", "Force with lease", "bool", False),
             Field("tags", "Push tags", "bool", False),
         ],
