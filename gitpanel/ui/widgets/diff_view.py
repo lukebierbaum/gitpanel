@@ -280,7 +280,12 @@ class DiffView(CursorView):
         self.post_message(self.SelectionChanged(self))
 
     def _rebuild(self, *, keep_cursor: bool = False) -> None:
-        current = self.rows[self.cursor] if keep_cursor and self.rows else None
+        """Rebuild `rows`; `keep_cursor` keeps it on the same line. The cursor is clamped to
+        the new rows either way: it's only validated when assigned, and the rows can shrink
+        under it (side-by-side or whole-file switched on in `on_mount`, text arriving)."""
+        current = (
+            self.rows[min(self.cursor, len(self.rows) - 1)] if keep_cursor and self.rows else None
+        )
         opts = {
             "content": self._content,
             "expanded": frozenset(self._expanded),
@@ -306,6 +311,8 @@ class DiffView(CursorView):
         self._update_virtual_size()
         if current is not None:
             self.cursor = self._find_row(current)
+        elif self.cursor >= len(self.rows):
+            self.cursor = max(len(self.rows) - 1, 0)
         self.refresh()
 
     def _find_row(self, target: Row) -> int:

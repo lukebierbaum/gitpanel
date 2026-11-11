@@ -13,6 +13,7 @@ from ...actions.context import FileRef, PatchSelection, Scope, SelectionContext
 from ...git import commit as C
 from ...git import patch as P
 from ...git.changelists import Changelists
+from ...git.runner import GitError
 from ...git.status import status
 from ..base import ToolWindow
 from ..fmt import plural
@@ -153,7 +154,11 @@ class CommitView(ToolWindow):
             )
             return
         generation = self._generation
-        diffs = await self._load(ref)
+        try:
+            diffs = await self._load(ref)
+        except GitError as e:  # runs from an event handler: must not escape
+            view.set_diff(None, None, message=f"Can't show this diff — {e}")
+            return
         if generation != self._generation:
             return
         diff = next((d for d in diffs if d.path == ref.path), diffs[0] if diffs else None)
@@ -220,7 +225,10 @@ class CommitView(ToolWindow):
     async def _amend_changed(self, event: Checkbox.Changed) -> None:
         msg = self.query_one("#commit-msg", TextArea)
         if event.value and not msg.text.strip():
-            msg.text = await C.last_message(self.gp.session.git)
+            try:
+                msg.text = await C.last_message(self.gp.session.git)
+            except GitError as e:
+                self.gp.notify(f"Can't read the last commit message: {e}", severity="warning")
         self.gp.refresh_hints()
 
     @on(Button.Pressed, "#commit-button")

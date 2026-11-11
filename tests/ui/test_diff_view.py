@@ -141,3 +141,39 @@ async def test_hidden_unchanged_lines_expand_and_whole_file(repo):
         await settle(pilot, app)
         staged = repo.git("diff", "--cached")
         assert "+FIVE" in staged and "THIRTY-ONE" not in staged
+
+
+async def test_rebuild_that_drops_rows_reclamps_the_cursor(repo):
+    """A file without a final newline gets 7 lines appended: the unified diff has a
+    `\\ No newline` row and the old last line as `-`/`+`, so side-by-side has fewer rows.
+    Switching layout with a plain `_rebuild()` (what `on_mount` does for `side_by_side`)
+    used to leave the cursor past the last row, and the unchanged-lines worker then
+    crashed with IndexError in `_rebuild(keep_cursor=True)`."""
+    from gitpanel.ui.app import GitPanelApp
+
+    from .test_commit_view import move_to, settle
+
+    base = "\n".join(f"line {i}" for i in range(1, 21))  # no newline at the end
+    repo.commit({"f.txt": base}, "base")
+    (repo.path / "f.txt").write_text(base + "\n" + "\n".join(f"new {i}" for i in range(7)) + "\n")
+    app = GitPanelApp(repo.path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await settle(pilot, app)
+        move_to(app, "unstaged", "f.txt")
+        await settle(pilot, app)
+        view = app.query_one("#diff", DiffView)
+        assert not view.split
+        unified = len(view.rows)
+        view.cursor = unified - 1
+        view.split = True
+        view._rebuild()  # no keep_cursor and no new cursor: on_mount's path
+        assert len(view.rows) < unified
+        assert view.cursor == len(view.rows) - 1
+        view._load_unchanged()  # the worker that used to crash
+        await settle(pilot, app)
+        assert view.rows[view.cursor].pair.text == "new 6"
+
+        # a stale cursor reaching the keep-cursor lookup is tolerated too
+        view.set_reactive(DiffView.cursor, len(view.rows) + 5)
+        view._rebuild(keep_cursor=True)
+        assert view.cursor == len(view.rows) - 1

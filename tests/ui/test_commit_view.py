@@ -230,3 +230,36 @@ async def test_help_key_is_always_pinned_to_the_right_of_the_hint_bar(repo):
         line = str(bar.render())
         assert line.rstrip().endswith("?  help") and "…" in line
         assert len(line) <= bar.content_region.width
+
+
+async def test_repository_moved_while_open_commit_view_keeps_working(repo, tmp_path):
+    """Selecting a file or ticking Amend awaits git in an event handler; a GitError there
+    used to stop the app (Textual ends the handler's message loop and exits)."""
+    from textual.widgets import Checkbox
+
+    from gitpanel.git.session import ChangeKind
+
+    repo.write("README.md", "changed\n")
+    repo.write("other.txt", "new\n")
+    repo.git("add", "other.txt")
+    app = GitPanelApp(repo.path)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await settle(pilot, app)
+        repo.path.rename(tmp_path / "moved")
+        app.session.emit(ChangeKind.ALL)
+        await settle(pilot, app)
+        await pilot.press("escape")  # the "can't read the repository" dialog
+        await settle(pilot, app)
+
+        move_to(app, "staged", "other.txt")
+        await settle(pilot, app)
+        diff = app.query_one("#diff", DiffView)
+        assert diff.diff is None and "Can't show this diff" in diff.rows[0].text
+
+        app.query_one("#commit-amend", Checkbox).value = True
+        await settle(pilot, app)
+        assert any("last commit message" in n.message for n in app._notifications)
+
+        await pilot.press("2")  # the Log's load fails in a worker: a toast, not a crash
+        await settle(pilot, app)
+        assert app.is_running
