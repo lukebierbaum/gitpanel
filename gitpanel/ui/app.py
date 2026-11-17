@@ -13,6 +13,7 @@ from rich.text import Text
 from textual import events, on, work
 from textual.app import App, ComposeResult
 from textual.widgets import ContentSwitcher, Static, Tab, Tabs
+from textual.worker import WorkerFailed
 
 from ..actions.builtin import register_builtin
 from ..actions.context import SelectionContext
@@ -24,7 +25,7 @@ from ..config import load as load_config
 from ..forge.github import detect as forge_detect
 from ..git.operations import OperationState, detect
 from ..git.runner import GitError
-from ..git.session import ChangeKind, RepoSession
+from ..git.session import ChangeKind, RepoSession, WorktreeGone
 from ..git.status import status
 from .base import ToolWindow
 from .colors import CI_ICON, C
@@ -100,6 +101,7 @@ class GitPanelApp(App[None]):
         self.startup_error: str | None = None
         self._pr_badge: tuple[str | None, Any, float] = (None, None, 0.0)
         self._header_args: tuple[Any, ...] | None = None
+        self._gone: str | None = None  # why the repository can't be read (reported once)
         self._forge: tuple[Any, Any] | None = None
         for theme in THEMES:
             self.register_theme(theme)
@@ -209,9 +211,24 @@ class GitPanelApp(App[None]):
         session = self.session
         if session is None:
             return
-        await session.refresh_active()
-        st = await status(session.git)
-        self.operation = await detect(session.git)
+        before = session.active.path
+        try:
+            await session.refresh_active()
+            if session.active.path != before:
+                # said before the next await: the switch's ChangeKind.ALL starts a new
+                # refresh, which cancels this one
+                self.notify(
+                    f"{before} is gone (moved or deleted) — switched to worktree "
+                    f"{session.active.path}",
+                    severity="warning",
+                    timeout=10,
+                )
+            st = await status(session.git)
+            self.operation = await detect(session.git)
+        except (WorktreeGone, GitError) as e:
+            self._repo_gone(str(e))
+            return
+        self._gone = None
         self.query_one(OperationBanner).show_state(self.operation)
         self._update_header(
             st.branch.branch, st.branch.head, st.branch.ahead, st.branch.behind, st.branch.upstream
@@ -223,6 +240,20 @@ class GitPanelApp(App[None]):
         if hasattr(self.screen, "reload"):
             self.screen.reload()
         self.refresh_hints()
+
+    def _repo_gone(self, reason: str) -> None:
+        """The active worktree can't be read and there's nothing to switch to: say so once
+        (not on every change event / focus) and leave the views as they are."""
+        assert self.session is not None
+        t = Text()
+        t.append("gitpanel ", style="bold")
+        t.append(f" {self.session.common_dir.parent.name} ", style=f"bold {C.ink} on {C.red}")
+        t.append(f"  ⚠ {self.session.active.path} is no longer available", style=f"bold {C.red}")
+        self._header_args = None
+        self.query_one(Header).update(t)
+        if self._gone != reason:
+            self._gone = reason
+            self.show_error("Can't read the repository", reason)
 
     def _update_header(
         self, branch: str | None, head: str | None, ahead: int, behind: int, upstream: str | None
@@ -290,7 +321,7 @@ class GitPanelApp(App[None]):
         return provider.context(base)
 
     def refresh_hints(self) -> None:
-        if self.session is None:
+        if self.session is None or not self.screen_stack:  # no screens while shutting down
             return
         provider = self._context_screen()
         if provider is not None and hasattr(provider, "show_hints"):
@@ -383,6 +414,27 @@ class GitPanelApp(App[None]):
 
     def show_error(self, title: str, details: str) -> None:
         self.push_screen(ErrorDialog(title, details))
+
+    def _handle_exception(self, error: Exception) -> None:
+        # Textual sends every unhandled error here and exits. A git command failing in a
+        # background load (repository moved, a ref deleted under us …) is reported instead:
+        # the worker simply ends. Only workers — after a failing message handler Textual
+        # has already stopped that widget's message loop, so those still exit; handlers
+        # that await git catch GitError themselves.
+        if isinstance(error, WorkerFailed) and isinstance(error.error, GitError):
+            self.report_git_error(error.error)
+            return
+        super()._handle_exception(error)
+
+    def report_git_error(self, e: GitError) -> None:
+        """Show a failed git command without stacking the same error twice; while the
+        repository is known to be unreadable (see the header) a toast is enough."""
+        if self._gone is not None:
+            self.notify(str(e), severity="error", timeout=6)
+            return
+        if any(isinstance(s, ErrorDialog) and s.title_text == str(e) for s in self.screen_stack):
+            return
+        self.show_error(str(e), e.details)
 
     async def show_output(self, title: str, stream: AsyncIterator[str]) -> int:
         return await self.push_screen(OutputDialog(title, stream), wait_for_dismiss=True)

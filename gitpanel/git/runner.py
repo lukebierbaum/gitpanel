@@ -97,6 +97,12 @@ class Git:
             full.update(env)
         return full
 
+    def _missing_cwd(self, args: tuple[str, ...]) -> GitError:
+        """The working folder is gone (moved or deleted): fail like git would, not with
+        a bare FileNotFoundError, so callers' GitError handling covers it."""
+        msg = f"fatal: cannot change to '{self.cwd}': No such file or directory"
+        return GitError(GitResult(tuple(args), 128, b"", msg))
+
     async def run(
         self,
         *args: str,
@@ -119,6 +125,8 @@ class Git:
             )
         except OSError as e:
             CONSOLE.finish(entry, None, stderr=str(e))
+            if not self.cwd.is_dir():
+                raise self._missing_cwd(args) from e
             raise
         except asyncio.CancelledError:  # cancelled while the process was starting
             CONSOLE.finish(entry, None, cancelled=True)
@@ -160,6 +168,11 @@ class Git:
                 stderr=asyncio.subprocess.PIPE,
                 limit=1 << 24,
             )
+        except OSError as e:
+            CONSOLE.finish(entry, None, stderr=str(e))
+            if not self.cwd.is_dir():
+                raise self._missing_cwd(args) from e
+            raise
         except BaseException:
             CONSOLE.finish(entry, None, cancelled=True)
             raise

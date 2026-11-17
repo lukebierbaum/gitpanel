@@ -26,6 +26,8 @@ def _haystack(wt: Worktree, s: W.WorktreeSummary) -> str:
     words.append("dirty" if s.dirty else "clean")
     if s.missing:
         words.append("missing")
+    if s.broken is not None:
+        words.append("broken")
     if s.conflicts:
         words.append("conflicts")
     if wt.is_main:
@@ -82,6 +84,8 @@ class WorktreesView(ToolWindow):
             t = Text()
             if s.missing:
                 t.append("missing", style="red")
+            elif s.broken is not None:
+                t.append("broken", style="bold red")
             elif s.dirty:
                 if s.conflicts:
                     t.append(f"{s.conflicts}! ", style="bold red")
@@ -178,6 +182,15 @@ class WorktreesView(ToolWindow):
         if s.upstream:
             t.append(f"  tracking {s.upstream} ({ahead_behind(s.ahead, s.behind)})", style="dim")
         t.append("\n")
+        if s.broken is not None:
+            t.append(f"Broken: {s.broken}\n", style="red")
+            t.append(
+                "Its link to the repository is stale (was the repository or this folder "
+                "moved?) — run Repair Worktrees (git worktree repair) to fix it.\n",
+                style=C.amber,
+            )
+        if s.missing:
+            t.append("Missing: the folder no longer exists\n", style="red")
         if s.dirty:
             t.append(
                 f"{s.staged} staged · {s.unstaged} modified · {s.untracked} untracked"

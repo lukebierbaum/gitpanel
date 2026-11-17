@@ -121,6 +121,7 @@ Rules:
 - Always pass `-c color.ui=false -c core.quotepath=false`; use `-z` and NUL-separated formats wherever git offers them.
 - Network commands (fetch/pull/push) run with `GIT_TERMINAL_PROMPT=0` first; on auth failure the UI offers to rerun via `Ui.run_in_terminal()` in the real terminal so credential prompts work.
 - Cancellation: cancelling the awaiting task kills the subprocess.
+- A working folder that no longer exists (moved or deleted) fails like git does — a `GitError` (`fatal: cannot change to '<cwd>'`), not `FileNotFoundError` — so the usual GitError handling covers it.
 
 ## 4. Session, worktrees and change events (`git/session.py`)
 
@@ -158,12 +159,18 @@ class RepoSession:
     async def open(cls, path: Path) -> RepoSession: ...
     async def worktrees(self) -> list[Worktree]: ...
     async def switch(self, path: Path) -> None: ...  # re-binds git/journal, emits ChangeKind.ALL
+    async def refresh_active(self) -> Worktree: ...
+    # re-reads the active worktree; if it's unusable (folder moved/deleted, `.git` link stale)
+    # it switches to another worktree that still exists (main first) like switch(), or
+    # raises WorktreeGone when none is left (e.g. the whole repository was moved). The app
+    # notifies on a fallback, reports WorktreeGone once and skips the refresh.
     def subscribe(self, cb: Callable[[ChangeKind], None]) -> Callable[[], None]: ...
     def emit(self, kinds: ChangeKind) -> None: ...
     def private_dir(self, *, shared: bool = False) -> Path:
         ...
         # shared=False → <git-dir>/gitpanel   (per worktree: journal, messages)
         # shared=True  → <common-dir>/gitpanel (repo-wide: shelf, changelists, favourites)
+        # created on demand, but never re-creates a git dir that has been moved or deleted
 ```
 
 External change detection: a watcher task polls mtimes of `index`, `HEAD`, `packed-refs`, `refs/` (recursive dir mtimes), `logs/HEAD`, operation marker files and `worktrees/` every 1 s while the app has focus, and emits the matching `ChangeKind`s. Screens refresh on events only — never on timers of their own.
@@ -341,6 +348,7 @@ Rules:
 - Key handling: `GitPanelApp.on_key` (keys bubble there before widget bindings run) intercepts keys on the base screen, or on any pushed screen that exposes `context(base)` (tool popups such as Branches); plain dialogs never receive registry keys, asks `registry.for_key(ctx, key)`, dispatches. Navigation keys (arrows, tab, enter in lists, text input) stay with widgets. The footer `KeyHints` widget lists `registry.available(ctx)` that have keys — no static Textual `BINDINGS` for git operations.
 - The context menu (`alt+enter`, "Actions…") and the command palette are `registry.available(ctx)`; popups show only screen-restricted actions in their hint bar.
 - Dispatcher order: `applies(ctx)` (screens + scopes + `when`) → `confirm` (if set, or `destructive` without `silent_backup`) → `journal.mutation(label, destructive=…, paths=…, reset_mode=…)` if `mutating` → `run` → errors: `GitError` → `ui.notify(severity="error")` + `ui.show_error(details)`; `UndoRefused` → warning; `ActionError` → error notification.
+- Outside actions, a `GitError` escaping a view's `@work` worker is reported by the app (`report_git_error`: an error dialog, not stacked twice; a toast while the repository is known to be unreadable) and the app keeps running; any other unhandled error still exits. Event handlers that `await` git must catch `GitError` themselves — Textual stops a widget's message loop after a handler fails — or start a worker instead.
 - `Registry.for_key()` prefers screen-restricted actions over unrestricted ones, then non-global scopes over global, so one key (e.g. `space` = stage/unstage) can mean different things in different contexts via `when`.
 - Actions are plain async functions over `ActionEnv`; they are tested with a fake `Ui` and a real temp repo, no Textual.
 
