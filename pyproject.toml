@@ -8,6 +8,9 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = ["textual>=0.80", "rich>=13"]
 
+[project.optional-dependencies]
+web = ["aiohttp>=3.9"]  # `gitpanel --web`: the browser UI prototype (gitpanel/web)
+
 [project.scripts]
 gitpanel = "gitpanel.__main__:main"
 
@@ -29,6 +32,7 @@ python = "3.12.*"
 git = "*"
 textual = "*"
 rich = "*"
+aiohttp = ">=3.14.5,<4"
 
 [tool.pixi.pypi-dependencies]
 gitpanel = { path = ".", editable = true }
@@ -50,6 +54,7 @@ test = "pytest"
 lint = "ruff check ."
 fmt = "ruff format ."
 dev = "textual run --dev gitpanel.ui.app:GitPanelApp"
+web = "gitpanel --web"
 demo = "bash scripts/make_demo_repo.sh"
 
 # --- tooling ----------------------------------------------------------------

@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gitpanel</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23A66BE0'/%3E%3Cpath d='M11 8v16M11 13c0 4 10 2 10 7' stroke='%23101410' stroke-width='3' fill='none' stroke-linecap='round'/%3E%3Ccircle cx='21' cy='11' r='3.2' fill='%236CCB3A'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="logo"></span>gitpanel</div>
+    <div class="repo-chip" id="repo-chip" title="Repository"></div>
+    <button class="branch-chip" id="branch-chip" title="Current branch"></button>
+    <div class="op-banner" id="op-banner" hidden></div>
+    <nav class="tabs" id="tabs">
+      <button data-view="changes" class="tab"><span class="tab-key">1</span>Changes<span class="count" id="changes-count"></span></button>
+      <button data-view="log" class="tab"><span class="tab-key">2</span>Log</button>
+    </nav>
+    <div class="spacer"></div>
+    <div class="toolbar">
+      <button class="tool" data-action="remote.fetch" title="Fetch (F)"><svg viewBox="0 0 20 20"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/></svg>Fetch</button>
+      <button class="tool" data-action="remote.update" title="Update project (ctrl+T)"><svg viewBox="0 0 20 20"><path d="M10 3v12m0 0-4-4m4 4 4-4"/></svg>Pull</button>
+      <button class="tool" data-action="remote.push" title="Push (P)"><svg viewBox="0 0 20 20"><path d="M10 17V5m0 0-4 4m4-4 4 4M4 3h12"/></svg>Push</button>
+      <span class="sep"></span>
+      <button class="tool icon" id="undo-btn" data-action="app.undo" title="Undo (z)"><svg viewBox="0 0 20 20"><path d="M7 5 3 9l4 4M3 9h9a5 5 0 0 1 0 10h-2"/></svg></button>
+      <button class="tool icon" id="redo-btn" data-action="app.redo" title="Redo (Z)"><svg viewBox="0 0 20 20"><path d="m13 5 4 4-4 4m4-4H8a5 5 0 0 0 0 10h2"/></svg></button>
+      <button class="tool primary" id="palette-btn" title="All actions (ctrl+P)"><svg viewBox="0 0 20 20"><path d="M4 6h12M4 10h12M4 14h7"/></svg>Actions<kbd>⌃P</kbd></button>
+    </div>
+  </header>
+
+  <div class="body">
+    <aside class="sidebar" id="sidebar">
+      <div class="side-search"><input id="branch-filter" placeholder="Filter branches" spellcheck="false"></div>
+      <div class="side-scroll" id="branch-list"></div>
+    </aside>
+    <div class="splitter-x" data-split="sidebar"></div>
+    <main class="views">
+      <section class="view" id="view-changes" hidden></section>
+      <section class="view" id="view-log" hidden></section>
+    </main>
+  </div>
+
+  <footer class="statusbar">
+    <div class="hints" id="hints"></div>
+    <div class="conn" id="conn"><span class="dot"></span><span class="conn-text">connecting…</span></div>
+  </footer>
+
+  <div id="toasts" class="toasts"></div>
+  <div id="layer"></div>
+  <script type="module" src="/static/js/main.js"></script>
+</body>
+</html>

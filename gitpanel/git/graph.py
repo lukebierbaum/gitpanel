@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from typing import Literal
 
 from .models import Commit
 
@@ -13,10 +14,27 @@ ROOT_NODE = "◉"
 
 
 @dataclass(frozen=True)
+class GraphEdge:
+    """One line segment within a row, in lane units, for graphical renderers.
+
+    "pass": a lane running straight through the row (`lane` top → bottom).
+    "in": from `lane` at the top of the row into the commit's node (a child above).
+    "out": from the node down to `lane` at the bottom of the row (a parent below).
+    Lanes never move sideways between rows, so rows can be drawn independently.
+    """
+
+    kind: Literal["pass", "in", "out"]
+    lane: int
+    color: int
+
+
+@dataclass(frozen=True)
 class GraphRow:
     sha: str
     column: int
     cells: tuple[tuple[str, int], ...]  # (char, lane colour) for 2 * lanes columns
+    edges: tuple[GraphEdge, ...] = ()
+    color: int = 0  # the node's lane colour
 
     @property
     def width(self) -> int:
@@ -138,7 +156,19 @@ class GraphBuilder:
 
         node = MERGE_NODE if len(parents) > 1 else (ROOT_NODE if not parents else NODE)
         cells[2 * col] = (node, color)
-        return GraphRow(sha, col, tuple(cells))
+
+        edges: list[GraphEdge] = []
+        for i in range(width):
+            before, after = lane_at(prev, i), lane_at(nxt, i)
+            if i != col and before is not None and after is not None and before.sha == after.sha:
+                edges.append(GraphEdge("pass", i, before.color))
+        for i in hits:
+            edges.append(GraphEdge("in", i, prev[i].color))  # type: ignore[union-attr]
+        if parents:
+            edges.append(GraphEdge("out", col, color))
+        for t in branch_out:
+            edges.append(GraphEdge("out", t, tcolor_of(t)))
+        return GraphRow(sha, col, tuple(cells), tuple(edges), color)
 
 
 def rows_for(commits: Sequence[Commit]) -> list[GraphRow]:
