@@ -73,9 +73,12 @@ def _run_web(args: argparse.Namespace) -> None:
         sys.exit(f"gitpanel --web needs aiohttp: pip install 'gitpanel[web]' ({e})")
     from .git.runner import GitError
 
+    path = Path(args.path)
+    if not path.is_dir():
+        sys.exit(f"gitpanel: {path}: not a directory")
     try:
         run(
-            Path(args.path),
+            path,
             port=args.port,
             open_browser=not args.no_browser,
             config_path=Path(args.config) if args.config else None,
