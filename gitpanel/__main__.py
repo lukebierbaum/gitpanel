@@ -30,6 +30,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--init-config", action="store_true", help="write an example config file and exit"
     )
+    p.add_argument(
+        "--web",
+        action="store_true",
+        help="serve the browser UI (prototype; needs the `web` extra) instead of the TUI",
+    )
+    p.add_argument(
+        "--app",
+        action="store_true",
+        help="open the browser UI in its own desktop window (needs the `app` extra)",
+    )
+    p.add_argument("--port", type=int, default=0, help="port for --web (default: any free one)")
+    p.add_argument("--no-browser", action="store_true", help="with --web: don't open a browser")
     p.add_argument("--version", action="version", version=f"gitpanel {__version__}")
     return p.parse_args(argv)
 
@@ -40,6 +52,9 @@ def main(argv: list[str] | None = None) -> None:
         from .config import write_example
 
         print(write_example(Path(args.config) if args.config else None))
+        return
+    if args.web or args.app:
+        _run_web(args)
         return
     from .ui.app import GitPanelApp
 
@@ -54,6 +69,42 @@ def main(argv: list[str] | None = None) -> None:
         sys.exit(2)
     if args.cd_file and app.session is not None:
         Path(args.cd_file).write_text(str(app.session.active.path))
+
+
+def _run_web(args: argparse.Namespace) -> None:
+    flag, extra, pixi = (
+        ("--app", "app", " (in a pixi checkout: pixi run -e app app)")
+        if args.app
+        else ("--web", "web", "")
+    )
+    try:
+        if args.app:
+            import webview  # noqa: F401
+
+            from .web.window import run
+        else:
+            from .web.server import run
+    except ImportError as e:
+        sys.exit(
+            f"gitpanel {flag} needs the `{extra}` extra: pip install 'gitpanel[{extra}]'"
+            f"{pixi} ({e})"
+        )
+    from .git.runner import GitError
+
+    path = Path(args.path)
+    if not path.is_dir():
+        sys.exit(f"gitpanel: {path}: not a directory")
+    opts: dict[str, object] = {
+        "port": args.port,
+        "config_path": Path(args.config) if args.config else None,
+        "trust_repo_config": args.trust_repo_config,
+    }
+    if not args.app:
+        opts["open_browser"] = not args.no_browser
+    try:
+        run(path, **opts)
+    except GitError as e:
+        sys.exit(f"{args.path}: {e}")
 
 
 if __name__ == "__main__":

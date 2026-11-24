@@ -125,3 +125,21 @@ async def test_sync_markers_local_and_remote_only(repo, tmp_path):
     assert pushed not in marks
     assert marks[unpushed][0].kind == "unpushed"
     assert marks[incoming][0].kind == "incoming"
+
+
+def test_edges_describe_lanes_for_graphical_renderers():
+    rows = rows_for([C("m", "main2", "f"), C("f", "b"), C("main2", "b"), C("b", "a"), C("a")])
+    m, f, main2, b, a = rows
+
+    def kinds(row):
+        return sorted((e.kind, e.lane) for e in row.edges)
+
+    assert kinds(m) == [("out", 0), ("out", 1)]  # tip: no child above, two parents below
+    assert kinds(f) == [("in", 1), ("out", 1), ("pass", 0)]
+    assert kinds(main2) == [("in", 0), ("out", 0), ("pass", 1)]
+    assert kinds(b) == [("in", 0), ("in", 1), ("out", 0)]  # the feature lane joins back
+    assert kinds(a) == [("in", 0)]  # root: nothing below
+    # an edge keeps its lane's colour from row to row
+    assert {e.color for e in f.edges if e.lane == 1} == {
+        next(e.color for e in m.edges if e.lane == 1)
+    }

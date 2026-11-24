@@ -27,6 +27,8 @@ Read with: [ROADMAP.md](ROADMAP.md) (what and when), [../CLAUDE.md](../CLAUDE.md
 
 Import rule: `ui → actions → git`. Never the reverse. `gitpanel.git` must be importable and testable without Textual installed.
 
+`gitpanel.web` (prototype, `gitpanel --web`) is a second front end beside `gitpanel.ui`: same rule (`web → actions → forge/git`), never imports Textual or `ui`. It implements `Ui` over a WebSocket (`web/bridge.py`: dialogs become ask/answer messages) and rebuilds the same `SelectionContext` from what the browser names (shas, ref names, paths, hunk/line indexes), so actions run unchanged. The browser draws the log graph from `GraphRow.edges` (lane segments) rather than the box-drawing `cells`. `gitpanel --app` shows the same page in a native window (`web/window.py`, pywebview, `app` extra): the server runs on a background-thread event loop because the GUI toolkit owns the main thread. Status and TODOs: [gitpanel/web/README.md](../gitpanel/web/README.md).
+
 ## 2. Package layout
 
 ```
@@ -77,9 +79,13 @@ gitpanel/
                               # branch_label (branch/tag rendering, favourites)
     screens/                  # commit, log, branches, worktrees, conflicts, history, annotate, shelf, rebase_editor, push, compare
     dialogs.py
+  web/                        # browser UI prototype (aiohttp, `web` extra): server.py (token + origin
+                              # check, one RepoSession for all tabs), api.py (JSON calls → SelectionContext
+                              # → Dispatcher), bridge.py (WebUi), serialize.py, static/ (plain JS, no build),
+                              # window.py (--app: native window via pywebview)
 tests/
   conftest.py                 # RepoFactory fixture
-  git/  actions/  ui/
+  git/  actions/  ui/  web/
 ```
 
 ## 3. Git runner (`git/runner.py`)
