@@ -196,3 +196,17 @@ def test_norm_key_and_jsonable():
     from pathlib import Path
 
     assert jsonable({"p": Path("/x"), "t": (1, 2)}) == {"p": "/x", "t": [1, 2]}
+
+
+async def test_server_start_serves_the_page_until_stopped(repo):
+    import aiohttp
+
+    from gitpanel.web.server import Server
+
+    server = await Server.start(repo.path)
+    try:
+        assert server.url.startswith("http://127.0.0.1:") and "?t=" in server.url
+        async with aiohttp.ClientSession() as http, http.get(server.url) as resp:
+            assert resp.status == 200
+    finally:
+        await server.stop()

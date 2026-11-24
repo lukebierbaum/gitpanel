@@ -169,37 +169,57 @@ async def _revalidate(request: web.Request, response: web.StreamResponse) -> Non
         response.headers["Cache-Control"] = "no-cache"
 
 
-async def serve(
-    path: Path | str,
-    *,
-    host: str = "127.0.0.1",
-    port: int = 0,
-    open_browser: bool = True,
-    config_path: Path | None = None,
-    trust_repo_config: bool = False,
-) -> None:
-    webapp = await WebApp.open(path, config_path=config_path, trust_repo_config=trust_repo_config)
-    webapp.session.start_watching()
-    cfg = webapp.config
-    asyncio.get_running_loop().create_task(
-        webapp.session.journal.prune(cfg.journal_keep, timedelta(days=cfg.journal_max_age_days))
-    )
-    runner = web.AppRunner(webapp.make_app(), access_log=None)
-    await runner.setup()
-    site = web.TCPSite(runner, host, port)
-    await site.start()
-    bound = runner.addresses[0][1] if runner.addresses else port
-    url = f"http://{host}:{bound}/?t={webapp.token}"
+class Server:
+    """A running web UI: `start()` it inside an event loop, `stop()` it in the same loop."""
+
+    def __init__(self, webapp: WebApp, runner: web.AppRunner, url: str) -> None:
+        self.webapp = webapp
+        self.runner = runner
+        self.url = url
+
+    @classmethod
+    async def start(
+        cls,
+        path: Path | str,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 0,
+        config_path: Path | None = None,
+        trust_repo_config: bool = False,
+    ) -> Server:
+        webapp = await WebApp.open(
+            path, config_path=config_path, trust_repo_config=trust_repo_config
+        )
+        webapp.session.start_watching()
+        cfg = webapp.config
+        asyncio.get_running_loop().create_task(
+            webapp.session.journal.prune(cfg.journal_keep, timedelta(days=cfg.journal_max_age_days))
+        )
+        runner = web.AppRunner(webapp.make_app(), access_log=None)
+        await runner.setup()
+        site = web.TCPSite(runner, host, port)
+        await site.start()
+        bound = runner.addresses[0][1] if runner.addresses else port
+        return cls(webapp, runner, f"http://{host}:{bound}/?t={webapp.token}")
+
+    async def stop(self) -> None:
+        self.webapp.close()
+        await self.runner.cleanup()
+
+
+async def serve(path: Path | str, *, open_browser: bool = True, **kwargs: Any) -> None:
+    server = await Server.start(path, **kwargs)
     print(
-        f"gitpanel web UI for {webapp.session.active.path}\n  {url}\n(ctrl+c to stop)", flush=True
+        f"gitpanel web UI for {server.webapp.session.active.path}\n  {server.url}\n"
+        "(ctrl+c to stop)",
+        flush=True,
     )
     if open_browser:
-        webbrowser.open(url)
+        webbrowser.open(server.url)
     try:
         await asyncio.Event().wait()
     finally:
-        webapp.close()
-        await runner.cleanup()
+        await server.stop()
 
 
 def run(path: Path | str, **kwargs: Any) -> None:

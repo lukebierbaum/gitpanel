@@ -10,6 +10,7 @@ dependencies = ["textual>=0.80", "rich>=13"]
 
 [project.optional-dependencies]
 web = ["aiohttp>=3.9"]  # `gitpanel --web`: the browser UI prototype (gitpanel/web)
+app = ["aiohttp>=3.9", "pywebview>=5"]  # `gitpanel --app`: the browser UI in its own window
 
 [project.scripts]
 gitpanel = "gitpanel.__main__:main"
@@ -45,8 +46,25 @@ ruff = "*"
 [tool.pixi.feature.dev.pypi-dependencies]
 textual-dev = "*"
 
+# `pixi run -e app app`: the web UI in a native window (pywebview + a web engine)
+[tool.pixi.feature.app.target.linux-64.dependencies]
+pywebview = ">=5"
+pyqtwebengine = "*"  # Qt web engine: self-contained, no system WebKitGTK needed
+qtpy = "*"
+
+# conda-forge's pywebview is Linux-only; on macOS the PyPI wheel pulls in pyobjc (WKWebView)
+[tool.pixi.feature.app.target.osx-arm64.pypi-dependencies]
+pywebview = ">=5"
+
+[tool.pixi.feature.app.target.osx-64.pypi-dependencies]
+pywebview = ">=5"
+
+[tool.pixi.feature.app.tasks]
+app = "gitpanel --app"
+
 [tool.pixi.environments]
 default = ["dev"]
+app = ["app"]
 
 [tool.pixi.tasks]
 start = "gitpanel"
