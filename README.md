@@ -255,6 +255,7 @@ pixi run lint
 pixi run python scripts/screenshots.py   # regenerate docs/screenshots
 pixi run web /tmp/gp-demo       # browser UI prototype (Log + Changes) on the same backend
 pixi run -e app app /tmp/gp-demo  # the same UI in its own desktop window (pywebview)
+                                # status and TODOs: gitpanel/web/README.md
 ```
 
 Built with [Textual](https://textual.textualize.io). Design notes: [architecture](docs/architecture.md) · [roadmap](docs/ROADMAP.md) · [PyCharm parity](docs/PARITY.md) · [contributor guide](CLAUDE.md).
